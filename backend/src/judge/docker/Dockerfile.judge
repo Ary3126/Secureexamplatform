@@ -1,0 +1,26 @@
+# Multi-language Judge Environment
+FROM alpine:3.19
+
+# Install C++, Python 3, OpenJDK, and runtime tools
+RUN apk add --no-cache \
+    g++ \
+    gcc \
+    make \
+    python3 \
+    py3-pip \
+    openjdk17-jre \
+    openjdk17 \
+    coreutils \
+    bash
+
+# Create non-root judge user
+RUN adduser -D -u 1000 judgeuser
+
+WORKDIR /app
+
+# Ensure non-root ownership
+RUN chown -R judgeuser:judgeuser /app
+
+USER judgeuser
+
+CMD ["/bin/sh"]

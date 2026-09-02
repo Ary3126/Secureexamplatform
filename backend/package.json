@@ -1,0 +1,72 @@
+{
+  "name": "secure-exam-platform-backend",
+  "version": "1.0.0",
+  "description": "Backend service for Secure Competitive Programming & Examination Platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "dev:clean": "npx kill-port 5000 && nodemon src/server.js",
+    "db:init": "node src/config/initDb.js",
+    "test": "node scripts/testRunner.js --category=all",
+    "test:unit": "node scripts/testRunner.js --category=unit",
+    "test:feature": "node scripts/testRunner.js --category=feature",
+    "test:api": "node scripts/testRunner.js --category=api",
+    "test:security": "node scripts/testRunner.js --category=security",
+    "test:judge": "node scripts/testRunner.js --category=judge",
+    "test:skills": "node scripts/testRunner.js --category=skills",
+    "test:fast": "node scripts/testRunner.js --category=fast",
+    "test:changed": "node scripts/testRunner.js --changed",
+    "test:regression": "node scripts/testRunner.js --category=all",
+    "test:benchmark": "node scripts/testRunner.js --category=all",
+    "test:phase2": "node test_phase2.js",
+    "test:phase3": "node test_phase3.js",
+    "test:phase4a": "node test_phase4a.js",
+    "test:extra": "node test_phase4a_extra.js",
+    "test:phase4b1": "node test_phase4b1.js",
+    "test:phase4b2": "node test_phase4b2.js",
+    "test:phase4b3": "node test_phase4b3.js",
+    "test:phase4b4": "node test_phase4b4.js",
+    "test:phase4b5": "node test_phase4b5.js",
+    "test:phase4b6": "node test_phase4b6_security.js",
+    "test:phase4b7": "node test_phase4b7_stabilization.js",
+    "test:audit": "node test_step3_security_audit.js",
+    "test:phase5_7_1": "node test_phase5_7_1_skills.js",
+    "test:phase5_7_2": "node test_phase5_7_2_skills.js",
+    "test:phase5_7_3": "node test_phase5_7_3_skills.js",
+    "test:phase5_7_4": "node test_phase5_7_4_skills.js",
+    "test:phase5_7_5": "node test_phase5_7_5_skills.js",
+    "test:phase5_7_7": "node test_phase5_7_7_optimization.js",
+    "test:phase5_8_1": "node test_phase5_8_1_submissions.js",
+    "test:phase5_8_2": "node test_phase5_8_2_statistics.js",
+    "test:phase5_8_3": "node test_phase5_8_3_percentiles.js",
+    "test:phase5_8_4": "node test_phase5_8_4_distribution.js",
+    "test:phase5_8_5": "node test_phase5_8_5_comparison.js",
+    "test:submissions": "node scripts/testRunner.js --category=submissions",
+    "test:master_correction": "node test_master_correction_security.js"
+  },
+  "keywords": [
+    "competitive-programming",
+    "examination-platform",
+    "express",
+    "postgresql",
+    "security"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "overrides": {
+    "tar": "^7.4.3"
+  }
+}

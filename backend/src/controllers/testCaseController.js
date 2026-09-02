@@ -1,0 +1,198 @@
+const TestCaseModel = require('../models/testCaseModel');
+const ProblemModel = require('../models/problemModel');
+const AuditLogger = require('../services/auditLogger');
+const { canManageResource } = require('../services/contestService');
+
+/**
+ * Test Case Controller - Handles test case CRUD operations with ownership checks
+ */
+
+/**
+ * Add a test case to a problem
+ * @route POST /api/problems/:problemId/test-cases
+ */
+const createTestCase = async (req, res, next) => {
+  try {
+    const { problemId } = req.params;
+    const problem = await ProblemModel.findProblemById(problemId);
+
+    if (!problem) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Problem with ID ${problemId} not found`,
+      });
+    }
+
+    if (!canManageResource(req.user, problem)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: problem.id,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'TEST_CASE_CREATED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to add test cases to this problem',
+      });
+    }
+
+    const { inputData, expectedOutput, isHidden, timeLimitMs, memoryLimitMb, testOrder } = req.body;
+
+    const testCase = await TestCaseModel.createTestCaseWithSafety({
+      problemId: parseInt(problemId, 10),
+      inputData,
+      expectedOutput,
+      isHidden,
+      timeLimitMs,
+      memoryLimitMb,
+      testOrder,
+    }, req.user, req);
+
+    return res.status(201).json({
+      message: 'Test case created successfully',
+      testCase,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all test cases for a problem (Administrative only)
+ * @route GET /api/problems/:problemId/test-cases
+ */
+const getTestCases = async (req, res, next) => {
+  try {
+    const { problemId } = req.params;
+    const problem = await ProblemModel.findProblemById(problemId);
+
+    if (!problem) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Problem with ID ${problemId} not found`,
+      });
+    }
+
+    if (!canManageResource(req.user, problem)) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to view administrative test cases',
+      });
+    }
+
+    const testCases = await TestCaseModel.findTestCasesByProblemId(problemId, { includeHidden: true });
+
+    return res.status(200).json({
+      count: testCases.length,
+      testCases,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update a test case
+ * @route PUT /api/test-cases/:id
+ */
+const updateTestCase = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const testCase = await TestCaseModel.findTestCaseById(id);
+
+    if (!testCase) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Test case with ID ${id} not found`,
+      });
+    }
+
+    const problem = await ProblemModel.findProblemById(testCase.problemId);
+    if (!canManageResource(req.user, problem)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'test_case',
+        resourceId: id,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'TEST_CASE_UPDATED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to modify this test case',
+      });
+    }
+
+    const updated = await TestCaseModel.updateTestCaseWithSafety(id, req.body, req.user, req);
+
+    return res.status(200).json({
+      message: 'Test case updated successfully',
+      testCase: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Delete a test case
+ * @route DELETE /api/test-cases/:id
+ */
+const deleteTestCase = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const testCase = await TestCaseModel.findTestCaseById(id);
+
+    if (!testCase) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Test case with ID ${id} not found`,
+      });
+    }
+
+    const problem = await ProblemModel.findProblemById(testCase.problemId);
+    if (!canManageResource(req.user, problem)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'test_case',
+        resourceId: id,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'TEST_CASE_DELETED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to delete this test case',
+      });
+    }
+
+    await TestCaseModel.deleteTestCaseWithSafety(id, req.user, req, testCase.problemId);
+
+    return res.status(200).json({
+      message: 'Test case deleted successfully',
+      deletedTestCaseId: id,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  createTestCase,
+  getTestCases,
+  updateTestCase,
+  deleteTestCase,
+};

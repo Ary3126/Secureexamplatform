@@ -1,0 +1,43 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint",
+    "test": "node scripts/testRunner.js --category=all",
+    "test:fast": "node scripts/testRunner.js --category=fast",
+    "test:nav": "node scripts/testRunner.js --category=nav",
+    "test:auth": "node scripts/testRunner.js --category=auth",
+    "test:dashboard": "node scripts/testRunner.js --category=dashboard",
+    "test:contest": "node scripts/testRunner.js --category=contest",
+    "test:leaderboard": "node scripts/testRunner.js --category=leaderboard",
+    "test:profile": "node scripts/testRunner.js --category=profile",
+    "test:regression": "node scripts/testRunner.js --category=all",
+    "test:phase5_5": "node test_phase5_5.js",
+    "test:phase5_6": "node test_phase5_6.js",
+    "test:phase5_7_6": "node test_phase5_7_6_skills_ui.js",
+    "test:skills_ui": "node scripts/testRunner.js --category=skills_ui",
+    "test:phase5_8_1": "node test_phase5_8_1_submission_detail_ui.js",
+    "test:phase5_8_2": "node test_phase5_8_2_statistics_ui.js",
+    "test:phase5_8_5": "node test_phase5_8_5_comparison_ui.js",
+    "test:submissions": "node scripts/testRunner.js --category=submissions",
+    "test:master_correction": "node test_master_correction_ui.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "oxlint": "^1.75.0",
+    "vite": "^8.2.0"
+  }
+}
