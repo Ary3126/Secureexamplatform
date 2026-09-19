@@ -195,7 +195,7 @@ async function runSecurityAuditTests() {
     assert(missingAuthRes.status === 401, 'Missing Authorization header is rejected with 401');
 
     // Seed Professors in DB
-    const hash = require('bcrypt').hashSync('Password123!', 10);
+    const hash = require('bcryptjs').hashSync('Password123!', 10);
     const profResA = await db.query(
       `INSERT INTO users (username, email, password_hash, full_name, role) VALUES ($1, $2, $3, $4, 'professor') RETURNING id, username, role`,
       [profA.username, profA.email, hash, profA.fullName]

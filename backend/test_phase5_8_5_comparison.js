@@ -28,7 +28,7 @@
  */
 
 const http = require('http');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const { app } = require('./src/server');
 const db = require('./src/config/db');
 const UserModel = require('./src/models/userModel');
