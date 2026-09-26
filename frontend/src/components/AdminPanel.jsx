@@ -38,8 +38,11 @@ function UsersSection({ token, currentUser }) {
       });
       if (res.ok) {
         const data = await res.json();
-        setUsers(data.users || data || []);
-        setTotalUsers(data.total || data.totalUsers || (data.users || data || []).length);
+        const payload = data.data || data;
+        const userList = payload.users || (Array.isArray(payload) ? payload : []);
+        const total = payload.pagination?.total ?? payload.total ?? payload.totalUsers ?? userList.length;
+        setUsers(userList);
+        setTotalUsers(total);
       }
     } catch (err) {
       console.error('Failed to fetch users:', err);
@@ -50,6 +53,22 @@ function UsersSection({ token, currentUser }) {
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
+  const handleFetchUserDetails = async (userId) => {
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        return json.data?.user || json.user || json;
+      }
+      return null;
+    } catch (err) {
+      console.error('Failed to fetch user details:', err);
+      return null;
+    }
+  };
+
   const handleCreateUser = async (userData) => {
     setIsProcessing(true);
     try {
@@ -58,9 +77,15 @@ function UsersSection({ token, currentUser }) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(userData),
       });
-      if (res.ok) fetchUsers();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        fetchUsers();
+        return { success: true };
+      }
+      return { success: false, message: data.message || 'Failed to create user' };
     } catch (err) {
       console.error('Create user failed:', err);
+      return { success: false, message: err.message || 'Network error' };
     } finally {
       setIsProcessing(false);
     }
@@ -74,27 +99,44 @@ function UsersSection({ token, currentUser }) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ role }),
       });
-      if (res.ok) fetchUsers();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        fetchUsers();
+        return { success: true };
+      }
+      return { success: false, message: data.message || 'Failed to update user role' };
     } catch (err) {
       console.error('Role update failed:', err);
+      return { success: false, message: err.message || 'Network error' };
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleToggleUserStatus = async (userId, currentIsActive) => {
+  const handleToggleUserStatus = async (userOrId, currentIsActive) => {
     setIsProcessing(true);
-    // Phase 7.1 Bug P1 Fix: backend expects { isActive: boolean }, not { status: string }
-    const newIsActive = !currentIsActive;
+    let userId = userOrId;
+    let isActive = currentIsActive;
+    if (userOrId && typeof userOrId === 'object') {
+      userId = userOrId.id;
+      isActive = userOrId.isActive !== undefined ? userOrId.isActive : (userOrId.is_active !== undefined ? userOrId.is_active : userOrId.status === 'active');
+    }
+    const newIsActive = !isActive;
     try {
       const res = await fetch(`/api/admin/users/${userId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ isActive: newIsActive }),
       });
-      if (res.ok) fetchUsers();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        fetchUsers();
+        return { success: true };
+      }
+      return { success: false, message: data.message || 'Failed to update account status' };
     } catch (err) {
       console.error('Status toggle failed:', err);
+      return { success: false, message: err.message || 'Network error' };
     } finally {
       setIsProcessing(false);
     }
@@ -119,6 +161,7 @@ function UsersSection({ token, currentUser }) {
       onCreateUser={handleCreateUser}
       onUpdateUserRole={handleUpdateUserRole}
       onToggleUserStatus={handleToggleUserStatus}
+      onFetchUserDetails={handleFetchUserDetails}
     />
   );
 }

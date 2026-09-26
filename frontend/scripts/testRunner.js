@@ -34,6 +34,7 @@ const SUITE_DEFINITIONS = {
   phase6_ui: { file: 'test_phase6_stabilization_ui.js', name: 'Phase 6 Frontend Stabilization & Architecture Verification', tags: ['ui', 'architecture', 'nav', 'fast'] },
   admin_shell: { file: 'test_admin_phase1_shell.js', name: 'Admin Architecture & Layout Shell (Phase 7.1)', tags: ['admin', 'shell', 'nav', 'fast'] },
   admin_dashboard: { file: 'test_admin_phase2_dashboard.js', name: 'Admin Dashboard Metrics & UI Logic (Phase 7.2)', tags: ['admin', 'dashboard', 'fast'] },
+  admin_users: { file: 'test_admin_phase3_users.js', name: 'Admin User Management & Role Governance (Phase 7.3)', tags: ['admin', 'users', 'fast'] },
 };
 
 const CATEGORIES = {
@@ -45,8 +46,8 @@ const CATEGORIES = {
   profile: ['profile', 'skills_ui'],
   skills_ui: ['skills_ui'],
   submissions: ['submissions', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui'],
-  admin: ['admin_shell', 'admin_dashboard'],
-  fast: ['nav', 'auth', 'dashboard', 'profile', 'skills_ui', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui', 'master_correction_ui', 'phase6_ui', 'admin_shell', 'admin_dashboard'],
+  admin: ['admin_shell', 'admin_dashboard', 'admin_users'],
+  fast: ['nav', 'auth', 'dashboard', 'profile', 'skills_ui', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui', 'master_correction_ui', 'phase6_ui', 'admin_shell', 'admin_dashboard', 'admin_users'],
   all: Object.keys(SUITE_DEFINITIONS),
   regression: Object.keys(SUITE_DEFINITIONS),
 };

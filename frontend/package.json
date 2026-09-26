@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
     "lint": "oxlint",
     "test": "node scripts/testRunner.js --category=all",
     "test:fast": "node scripts/testRunner.js --category=fast",
@@ -29,6 +29,7 @@
     "test:admin": "node scripts/testRunner.js --category=admin",
     "test:phase7_1": "node test_admin_phase1_shell.js",
     "test:phase7_2": "node test_admin_phase2_dashboard.js",
+    "test:phase7_3": "node test_admin_phase3_users.js",
     "preview": "vite preview"
   },
   "dependencies": {
