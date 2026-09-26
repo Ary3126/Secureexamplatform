@@ -11,6 +11,7 @@
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
+  padding-bottom: 32px;
   animation: adminFadeIn 0.25s ease-out;
 }
 
