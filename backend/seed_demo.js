@@ -36,6 +36,25 @@ async function seed() {
       });
     }
 
+    // 2b. Create / ensure Super Admin
+    let admin = await UserModel.findUserByEmail('admin@securejudge.io');
+    const adminPwHash = await hashPassword('Admin@1234');
+    if (!admin) {
+      await UserModel.createUser({
+        username: 'platform_admin',
+        email: 'admin@securejudge.io',
+        passwordHash: adminPwHash,
+        fullName: 'Platform Administrator',
+        role: 'super_admin',
+        bio: 'ExamForge Super Administrator',
+      });
+    } else {
+      await query(
+        `UPDATE users SET password_hash = $1, role = 'super_admin', is_active = true WHERE email = $2`,
+        [adminPwHash, 'admin@securejudge.io']
+      );
+    }
+
     // 3. Create long-running active contest (running until 2030)
     const now = new Date();
     const startTime = new Date(now.getTime() - 24 * 3600 * 1000).toISOString(); // Started 1 day ago

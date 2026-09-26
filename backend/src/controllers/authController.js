@@ -71,10 +71,19 @@ const register = async (req, res, next) => {
  */
 const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const email = (req.body.email || req.body.username || '').trim();
+    const { password } = req.body;
 
-    // Find user by email
-    const user = await UserModel.findUserByEmail(email);
+    if (!email || !password) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Email/username and password are required',
+      });
+    }
+
+    // Find user by email or username
+    const user = (await UserModel.findUserByEmail(email)) || (await UserModel.findUserByUsername(email));
     if (!user) {
       await AuditLogger.logAction({
         action: 'LOGIN_FAILURE',
