@@ -7,6 +7,8 @@
 
 const db = require('../config/db');
 const UserModel = require('../models/userModel');
+const ProblemModel = require('../models/problemModel');
+const TestCaseModel = require('../models/testCaseModel');
 const AuditLogModel = require('../models/auditLogModel');
 const AuditLogger = require('../services/auditLogger');
 const { hashPassword, sanitizeUser } = require('../services/authService');
@@ -805,6 +807,122 @@ const getOverviewStats = async (req, res, next) => {
   }
 };
 
+/**
+ * List all problems with search, filtering, and server-side pagination (Super Admin Only)
+ * @route GET /api/admin/problems
+ */
+const getProblems = async (req, res, next) => {
+  try {
+    const {
+      search,
+      difficulty,
+      codingMode,
+      status,
+      accessScope,
+      page = 1,
+      limit = 20,
+      sortBy = 'newest',
+    } = req.query;
+
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (parsedPage - 1) * parsedLimit;
+
+    // Super Admin queries without visibility restrictions
+    const [problems, totalProblems] = await Promise.all([
+      ProblemModel.findAllProblems({
+        search,
+        difficulty,
+        codingMode,
+        status,
+        accessScope,
+        sortBy,
+        limit: parsedLimit,
+        offset,
+        userId: req.user.id,
+        userRole: 'super_admin',
+      }),
+      ProblemModel.countAllProblems({
+        search,
+        difficulty,
+        codingMode,
+        status,
+        accessScope,
+        userId: req.user.id,
+        userRole: 'super_admin',
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalProblems / parsedLimit) || 1;
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        problems,
+        pagination: {
+          total: totalProblems,
+          page: parsedPage,
+          limit: parsedLimit,
+          totalPages,
+          hasNextPage: parsedPage < totalPages,
+          hasPrevPage: parsedPage > 1,
+        },
+      },
+      // Convenience properties for direct consumption
+      problems,
+      total: totalProblems,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get problem details by ID for administrative editing/inspection (Super Admin Only)
+ * @route GET /api/admin/problems/:id
+ */
+const getProblemById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const idStr = String(id || '').trim();
+    if (!/^\d+$/.test(idStr) || parseInt(idStr, 10) <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem ID format. Must be a positive integer.',
+      });
+    }
+
+    const problemId = parseInt(idStr, 10);
+    const problem = await ProblemModel.findProblemById(problemId, req.user.id);
+    if (!problem) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Problem with ID ${id} not found`,
+      });
+    }
+
+    const sampleCases = await TestCaseModel.findVisibleSampleTestCases(problemId);
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        problem: {
+          ...problem,
+          sampleTestCases: sampleCases,
+        },
+      },
+      problem: {
+        ...problem,
+        sampleTestCases: sampleCases,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAuditLogs,
   getUsers,
@@ -814,4 +932,6 @@ module.exports = {
   updateUserRole,
   updateUserStatus,
   getOverviewStats,
+  getProblems,
+  getProblemById,
 };

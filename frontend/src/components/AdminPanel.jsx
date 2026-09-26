@@ -6,12 +6,13 @@ import AdminHeader from './admin/AdminHeader';
 // ── Real Section Components ────────────────────────────────────────────────
 import AdminDashboard from './admin/AdminDashboard';
 import AdminUserManagement from './admin/AdminUserManagement';
-import AdminProblemGovernance from './admin/AdminProblemGovernance';
+import AdminProblemManagement from './admin/AdminProblemManagement';
+import AdminProblemEditor from './admin/AdminProblemEditor';
 import AdminContestManagement from './admin/AdminContestManagement';
 import AdminReviewGovernance from './admin/AdminReviewGovernance';
 import AdminObservability from './admin/AdminObservability';
-// Phase 7.1: Audit Logs section — wired from orphaned component
 import AdminAuditLogs from './admin/AdminAuditLogs';
+import { parseAdminProblemSubroute, buildAdminProblemPath } from '../config/adminNavConfig';
 
 const ADMIN_SIDEBAR_STORAGE_KEY = 'securejudge_admin_sidebar_collapsed';
 
@@ -167,29 +168,81 @@ function UsersSection({ token, currentUser }) {
 }
 
 // ── Problems Section Container ─────────────────────────────────────────────
-function ProblemsSection({ token }) {
+function ProblemsSection({ token, currentUser, onNavigateSubroute }) {
+  const initialSubroute = parseAdminProblemSubroute(typeof window !== 'undefined' ? window.location.pathname : '');
+  const [subview, setSubview] = useState(initialSubroute.subview);
+  const [selectedProblemId, setSelectedProblemId] = useState(initialSubroute.problemId);
+
+  // List view filters & state
   const [problems, setProblems] = useState([]);
+  const [totalProblems, setTotalProblems] = useState(0);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
+  const [search, setSearch] = useState('');
+  const [difficultyFilter, setDifficultyFilter] = useState('all');
+  const [codingModeFilter, setCodingModeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [scopeFilter, setScopeFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Sync subroute from external popstate
+  useEffect(() => {
+    const handlePopState = () => {
+      const { subview: sv, problemId: pid } = parseAdminProblemSubroute(typeof window !== 'undefined' ? window.location.pathname : '');
+      setSubview(sv);
+      setSelectedProblemId(pid);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigateSubroute = (newSubview, probId = null) => {
+    setSubview(newSubview);
+    setSelectedProblemId(probId);
+    const newPath = buildAdminProblemPath(newSubview, probId);
+    if (typeof window !== 'undefined' && window.history && window.location.pathname !== newPath) {
+      window.history.pushState({ view: 'admin', adminSection: 'problems', subview: newSubview, problemId: probId }, '', newPath);
+    }
+    if (onNavigateSubroute) {
+      onNavigateSubroute('problems', newPath);
+    }
+  };
+
   const fetchProblems = useCallback(async () => {
+    if (subview !== 'list') return;
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/problems', {
+      const params = new URLSearchParams({ page, limit });
+      if (search.trim()) params.set('search', search.trim());
+      if (difficultyFilter !== 'all') params.set('difficulty', difficultyFilter);
+      if (codingModeFilter !== 'all') params.set('coding_mode', codingModeFilter);
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (scopeFilter !== 'all') params.set('access_scope', scopeFilter);
+
+      const res = await fetch(`/api/admin/problems?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setProblems(data.problems || data || []);
+        const payload = data.data || data;
+        const problemList = payload.problems || (Array.isArray(payload) ? payload : []);
+        const total = payload.pagination?.total ?? payload.total ?? payload.totalProblems ?? problemList.length;
+        setProblems(problemList);
+        setTotalProblems(total);
       }
     } catch (err) {
       console.error('Failed to fetch problems:', err);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, subview, page, limit, search, difficultyFilter, codingModeFilter, statusFilter, scopeFilter]);
 
-  useEffect(() => { fetchProblems(); }, [fetchProblems]);
+  useEffect(() => {
+    if (subview === 'list') {
+      fetchProblems();
+    }
+  }, [fetchProblems, subview]);
 
   const handleArchiveProblem = async (problemId) => {
     setIsProcessing(true);
@@ -206,14 +259,61 @@ function ProblemsSection({ token }) {
     }
   };
 
+  const handleResetFilters = () => {
+    setSearch('');
+    setDifficultyFilter('all');
+    setCodingModeFilter('all');
+    setStatusFilter('all');
+    setScopeFilter('all');
+    setPage(1);
+  };
+
+  if (subview === 'create') {
+    return (
+      <AdminProblemEditor
+        mode="create"
+        problemId={null}
+        token={token}
+        currentUser={currentUser}
+        onBack={() => navigateSubroute('list')}
+      />
+    );
+  }
+
+  if (subview === 'edit') {
+    return (
+      <AdminProblemEditor
+        mode="edit"
+        problemId={selectedProblemId}
+        token={token}
+        currentUser={currentUser}
+        onBack={() => navigateSubroute('list')}
+      />
+    );
+  }
+
   return (
-    <AdminProblemGovernance
+    <AdminProblemManagement
       problems={problems}
+      totalProblems={totalProblems}
+      page={page}
+      limit={limit}
+      search={search}
+      difficultyFilter={difficultyFilter}
+      codingModeFilter={codingModeFilter}
+      statusFilter={statusFilter}
+      scopeFilter={scopeFilter}
       loading={loading}
       isProcessing={isProcessing}
-      onInspectProblem={(p) => console.log('Inspect problem', p)}
-      onOpenWorkspace={(p) => console.log('Open workspace', p)}
-      onCreateProblem={() => console.log('Create problem')}
+      onSearchChange={(val) => { setSearch(val); setPage(1); }}
+      onDifficultyFilterChange={(val) => { setDifficultyFilter(val); setPage(1); }}
+      onCodingModeFilterChange={(val) => { setCodingModeFilter(val); setPage(1); }}
+      onStatusFilterChange={(val) => { setStatusFilter(val); setPage(1); }}
+      onScopeFilterChange={(val) => { setScopeFilter(val); setPage(1); }}
+      onResetFilters={handleResetFilters}
+      onPageChange={setPage}
+      onNavigateToCreate={() => navigateSubroute('create')}
+      onNavigateToEdit={(prob) => navigateSubroute('edit', prob.id || prob.problemId)}
       onArchiveProblem={handleArchiveProblem}
     />
   );
@@ -441,7 +541,11 @@ export default function AdminPanel({
 
           {/* Problem Bank — governance, quality scoring, lifecycle */}
           {activeSection === 'problems' && (
-            <ProblemsSection token={token} />
+            <ProblemsSection
+              token={token}
+              currentUser={currentUser}
+              onNavigateSubroute={handleSelectSection}
+            />
           )}
 
           {/* Contests & Exams — scheduling, publish/archive lifecycle */}

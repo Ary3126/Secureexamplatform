@@ -30,6 +30,7 @@
     "test:phase7_1": "node test_admin_phase1_shell.js",
     "test:phase7_2": "node test_admin_phase2_dashboard.js",
     "test:phase7_3": "node test_admin_phase3_users.js",
+    "test:phase7_4_1": "node test_admin_phase4_1_problems_ui.js",
     "preview": "vite preview"
   },
   "dependencies": {

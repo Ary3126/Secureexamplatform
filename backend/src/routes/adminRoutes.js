@@ -65,6 +65,30 @@ router.patch('/users/:id/role', adminController.updateUserRole);
 router.patch('/users/:id/status', adminController.updateUserStatus);
 
 // ==========================================
+// PHASE 7.4.1 ADMIN PROBLEM MANAGEMENT
+// ==========================================
+
+const problemLifecycleController = require('../controllers/problemLifecycleController');
+
+/**
+ * @route GET /api/admin/problems
+ * Super Admin list all problems across all scopes and review statuses
+ */
+router.get('/problems', adminController.getProblems);
+
+/**
+ * @route GET /api/admin/problems/:id
+ * Super Admin get single problem details for administrative editing/governance
+ */
+router.get('/problems/:id', adminController.getProblemById);
+
+/**
+ * @route POST /api/admin/problems/:id/archive
+ * Super Admin archive problem with audit logging and dependency verification
+ */
+router.post('/problems/:id/archive', problemLifecycleController.archiveProblem);
+
+// ==========================================
 // PHASE 5.9.6 PROBLEM REVIEW GOVERNANCE QUEUE
 // ==========================================
 

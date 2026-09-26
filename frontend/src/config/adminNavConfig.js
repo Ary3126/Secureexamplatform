@@ -71,3 +71,31 @@ export const parseAdminSection = (pathname) => {
   if (cleanPath === '/admin/system' || cleanPath.startsWith('/admin/system/')) return 'system';
   return 'dashboard';
 };
+
+/**
+ * Parse Admin Problem Subroutes (Phase 7.4.1)
+ * Extracts subview ('list' | 'create' | 'edit') and problemId from /admin/problems/*
+ */
+export const parseAdminProblemSubroute = (pathname) => {
+  const cleanPath = (pathname || '').split('?')[0].split('#')[0].toLowerCase().trim();
+  if (cleanPath === '/admin/problems/new') {
+    return { subview: 'create', problemId: null };
+  }
+  const editMatch = cleanPath.match(/^\/admin\/problems\/([^/]+)\/edit\/?$/);
+  if (editMatch && editMatch[1] !== 'new') {
+    const rawId = editMatch[1];
+    const parsed = /^\d+$/.test(rawId) ? parseInt(rawId, 10) : rawId;
+    return { subview: 'edit', problemId: parsed };
+  }
+  return { subview: 'list', problemId: null };
+};
+
+/**
+ * Build Admin Problem URL path (Phase 7.4.1)
+ */
+export const buildAdminProblemPath = (subview = 'list', problemId = null) => {
+  if (subview === 'create') return '/admin/problems/new';
+  if (subview === 'edit' && problemId) return `/admin/problems/${problemId}/edit`;
+  return '/admin/problems';
+};
+
