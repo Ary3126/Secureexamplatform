@@ -3,12 +3,12 @@ import assert from 'node:assert';
 import { NAV_GROUPS, KEYBOARD_SHORTCUTS, SIDEBAR_STORAGE_KEY } from './src/config/navConfig.js';
 
 describe('Navigation + UI/UX Refactor & AppShell Architecture Tests', () => {
-  it('1. Sidebar NAV_GROUPS has correct 3 groups (MAIN, COMPETE, ACCOUNT)', () => {
+  it('1. Sidebar NAV_GROUPS contains core and role-scoped navigation groups', () => {
     assert.strictEqual(Array.isArray(NAV_GROUPS), true, 'NAV_GROUPS should be an array');
-    assert.strictEqual(NAV_GROUPS.length, 3, 'Should have exactly 3 navigation groups');
+    assert.strictEqual(NAV_GROUPS.length, 5, 'Should have 5 navigation groups (main, compete, professor, admin, account)');
 
     const groupIds = NAV_GROUPS.map((g) => g.groupId);
-    assert.deepStrictEqual(groupIds, ['main', 'compete', 'account'], 'Group IDs must match');
+    assert.deepStrictEqual(groupIds, ['main', 'compete', 'professor', 'admin', 'account'], 'Group IDs must match');
   });
 
   it('2. Sidebar MAIN group contains Home, Problems, and Contests', () => {
@@ -42,8 +42,9 @@ describe('Navigation + UI/UX Refactor & AppShell Architecture Tests', () => {
   });
 
   it('5. Role-aware navigation foundation filters items accurately', () => {
-    const studentUser = { id: 1, username: 'student1', role: 'STUDENT' };
-    const professorUser = { id: 2, username: 'prof1', role: 'PROFESSOR' };
+    const studentUser = { id: 1, username: 'student1', role: 'student' };
+    const professorUser = { id: 2, username: 'prof1', role: 'professor' };
+    const adminUser = { id: 3, username: 'admin1', role: 'super_admin' };
 
     // Function matching Sidebar.jsx filterItemsByRole
     const filterByRole = (items, user) => {
@@ -57,9 +58,11 @@ describe('Navigation + UI/UX Refactor & AppShell Architecture Tests', () => {
     const allItems = NAV_GROUPS.flatMap((g) => g.items);
     const studentItems = filterByRole(allItems, studentUser);
     const profItems = filterByRole(allItems, professorUser);
+    const adminItems = filterByRole(allItems, adminUser);
 
-    assert.strictEqual(studentItems.length, 8, 'Student sees all 8 standard items');
-    assert.strictEqual(profItems.length, 8, 'Professor sees all 8 standard items');
+    assert.strictEqual(studentItems.length, 8, 'Student sees 8 items (main, compete, account)');
+    assert.strictEqual(profItems.length, 13, 'Professor sees 13 items (+5 faculty studio)');
+    assert.strictEqual(adminItems.length, 15, 'Super admin sees all 15 items (+5 faculty + 2 admin)');
   });
 
   it('6. LocalStorage persistence key is standardized', () => {

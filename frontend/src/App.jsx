@@ -80,6 +80,17 @@ function MainApp() {
     return 'landing';
   };
 
+  const getInitialAdminSection = () => {
+    if (typeof window === 'undefined') return 'dashboard';
+    const path = window.location.pathname.toLowerCase();
+    if (path === '/admin/users' || path.startsWith('/admin/users/')) return 'users';
+    if (path === '/admin/problems' || path.startsWith('/admin/problems/')) return 'problems';
+    if (path === '/admin/contests' || path.startsWith('/admin/contests/')) return 'contests';
+    if (path === '/admin/reviews' || path.startsWith('/admin/reviews/')) return 'reviews';
+    if (path === '/admin/system' || path.startsWith('/admin/system/')) return 'system';
+    return 'dashboard';
+  };
+
   const getInitialFilterParams = () => {
     if (typeof window === 'undefined') return {};
     const searchParams = new URLSearchParams(window.location.search);
@@ -95,6 +106,7 @@ function MainApp() {
 
   // App Navigation View: 'landing' | 'login' | 'signup' | 'problems' | 'submissions' | 'submission_detail' | 'workspace' | 'dashboard' | 'profile' | 'leaderboard' | 'rankings' | 'studio' | 'admin'
   const [activeView, setActiveView] = useState(getInitialView);
+  const [adminSection, setAdminSection] = useState(getInitialAdminSection);
   const [activeProfileTab, setActiveProfileTab] = useState('matrix');
   const [profileTargetUser, setProfileTargetUser] = useState(getInitialProfileUser);
   const [leaderboardContestId, setLeaderboardContestId] = useState(getInitialLeaderboardContestId);
@@ -102,9 +114,12 @@ function MainApp() {
   const [initialExplorerFilters] = useState(getInitialFilterParams);
 
   // Sync view state to browser URL history
-  const navigateTo = useCallback((view, pushState = true, targetUser = null, targetContestId = null, initialTab = 'matrix', targetSubmissionId = null) => {
+  const navigateTo = useCallback((view, pushState = true, targetUser = null, targetContestId = null, initialTab = 'matrix', targetSubmissionId = null, targetAdminSection = null) => {
     setActiveView(view);
     setActiveProfileTab(initialTab || 'matrix');
+    if (targetAdminSection) {
+      setAdminSection(targetAdminSection);
+    }
     if (view === 'profile') {
       setProfileTargetUser(targetUser || null);
     }
@@ -127,13 +142,21 @@ function MainApp() {
       else if (view === 'leaderboard') path = `/contests/${targetContestId || leaderboardContestId || '1'}/leaderboard`;
       else if (view === 'profile') path = targetUser ? `/u/${targetUser}` : '/profile';
       else if (view === 'studio') path = '/studio';
-      else if (view === 'admin') path = '/admin';
+      else if (view === 'admin') {
+        const sec = targetAdminSection || adminSection;
+        if (sec === 'users') path = '/admin/users';
+        else if (sec === 'problems') path = '/admin/problems';
+        else if (sec === 'contests') path = '/admin/contests';
+        else if (sec === 'reviews') path = '/admin/reviews';
+        else if (sec === 'system') path = '/admin/system';
+        else path = '/admin';
+      }
 
       if (window.location.pathname !== path) {
-        window.history.pushState({ view, targetUser, targetContestId, targetSubmissionId }, '', path);
+        window.history.pushState({ view, targetUser, targetContestId, targetSubmissionId, adminSection: targetAdminSection || adminSection }, '', path);
       }
     }
-  }, [leaderboardContestId, selectedSubmissionId]);
+  }, [leaderboardContestId, selectedSubmissionId, adminSection]);
 
   // Update URL search parameters when filtering on /problems
   const handleUrlParamChange = useCallback((filters) => {
@@ -153,10 +176,22 @@ function MainApp() {
     window.history.replaceState({ view: 'problems' }, '', newUrl);
   }, []);
 
+  // Sync admin subroute changes
+  const handleAdminSectionChange = useCallback((sectionId, path) => {
+    setAdminSection(sectionId);
+    if (typeof window !== 'undefined' && window.history) {
+      const targetPath = path || (sectionId === 'dashboard' ? '/admin' : `/admin/${sectionId}`);
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ view: 'admin', adminSection: sectionId }, '', targetPath);
+      }
+    }
+  }, []);
+
   // Listen to browser Back/Forward navigation
   useEffect(() => {
     const handlePopState = () => {
       setActiveView(getInitialView());
+      setAdminSection(getInitialAdminSection());
       setSelectedSubmissionId(getInitialSubmissionId());
       setProfileTargetUser(getInitialProfileUser());
       setLeaderboardContestId(getInitialLeaderboardContestId());
@@ -196,12 +231,22 @@ function MainApp() {
     } catch (e) {}
   };
 
+  const [isAuthChecking, setIsAuthChecking] = useState(() => {
+    try {
+      return Boolean(localStorage.getItem('token'));
+    } catch {
+      return false;
+    }
+  });
+
   // 1. Fetch user profile on token change
   useEffect(() => {
     if (!token) {
       setCurrentUser(null);
+      setIsAuthChecking(false);
       return;
     }
+    setIsAuthChecking(true);
     fetch(`/api/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -216,7 +261,10 @@ function MainApp() {
           } catch (e) {}
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        setIsAuthChecking(false);
+      });
   }, [token]);
 
   // 2. Fetch running contest and attached problems
@@ -648,6 +696,20 @@ function MainApp() {
   const isProblemInCurrentContest = contest && contest.id && Array.isArray(problems) && problems.some(p => (p.id || p.problemId) === (selectedProblem?.id || selectedProblem?.problemId));
   const activeContestForWorkspace = isProblemInCurrentContest ? contest : null;
 
+  // Dedicated Super Admin Panel Shell (Bypasses Student AppShell for clean standalone administration layout)
+  if (activeView === 'admin' && !isAuthChecking && currentUser && currentUser.role === 'super_admin') {
+    return (
+      <AdminPanel
+        currentUser={currentUser}
+        token={token}
+        initialSection={adminSection}
+        onNavigateSection={handleAdminSectionChange}
+        onLogout={handleLogout}
+        onExitToPlatform={() => navigateTo('dashboard')}
+      />
+    );
+  }
+
   return (
     <AppShell
       activeView={activeView}
@@ -847,52 +909,49 @@ function MainApp() {
         )
       )}
 
-      {/* 9.2 Super Admin Console (Platform Governor) */}
+      {/* 9.2 Super Admin Console Access Guard */}
       {activeView === 'admin' && (
-        !currentUser ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: '24px' }}>
-            <h2 style={{ color: '#f8fafc', marginBottom: '8px' }}>Authentication Required</h2>
-            <p style={{ color: '#94a3b8', maxWidth: '400px', marginBottom: '20px' }}>
-              Please log in with Super Admin credentials to access the Platform Governor Console.
-            </p>
-            <button
-              onClick={() => navigateTo('login')}
-              style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '10px 24px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}
-            >
-              Log In
-            </button>
+        isAuthChecking ? (
+          <div className="admin-access-screen">
+            <div className="admin-access-card auth">
+              <div style={{ width: '28px', height: '28px', border: '3px solid rgba(56, 189, 248, 0.2)', borderTopColor: '#38bdf8', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px auto' }} />
+              <h2 style={{ color: '#f8fafc', fontSize: '1.15rem', margin: '0 0 8px 0' }}>Verifying Credentials</h2>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>
+                Authenticating administrator permissions...
+              </p>
+            </div>
           </div>
-        ) : (currentUser.role !== 'super_admin' && currentUser.role !== 'contest_admin') ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: '24px' }}>
-            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', padding: '32px', maxWidth: '480px' }}>
+        ) : !currentUser ? (
+          <div className="admin-access-screen">
+            <div className="admin-access-card auth">
+              <h2 style={{ color: '#f8fafc', margin: '0 0 8px 0', fontSize: '1.25rem' }}>Authentication Required</h2>
+              <p style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: '1.5', margin: '0 0 20px 0' }}>
+                Please log in with Super Administrator credentials to access the Platform Governor Console.
+              </p>
+              <button
+                onClick={() => navigateTo('login')}
+                className="admin-access-btn"
+              >
+                Log In
+              </button>
+            </div>
+          </div>
+        ) : currentUser.role !== 'super_admin' ? (
+          <div className="admin-access-screen">
+            <div className="admin-access-card denied">
               <h2 style={{ color: '#f87171', margin: '0 0 12px 0', fontSize: '1.25rem' }}>Access Denied</h2>
               <p style={{ color: '#cbd5e1', fontSize: '0.9rem', lineHeight: '1.5', margin: '0 0 20px 0' }}>
-                {currentUser.role === 'professor'
-                  ? 'The Platform Governor Console is restricted to Super Administrators. Professors manage academic problems and class exams in the Professor Studio.'
-                  : 'The Admin Console is restricted to Super Administrators. Students can access practice and exams from the Student Dashboard.'}
+                The Admin Console is strictly restricted to Super Administrators. Your role '{currentUser.role}' is not authorized to access this resource.
               </p>
               <button
                 onClick={() => navigateTo(currentUser.role === 'professor' ? 'studio' : 'dashboard')}
-                style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', fontWeight: '700', cursor: 'pointer' }}
+                className="admin-access-btn"
               >
                 {currentUser.role === 'professor' ? 'Go to Professor Studio' : 'Go to Student Dashboard'}
               </button>
             </div>
           </div>
-        ) : (
-          <AdminPanel
-            token={token}
-            currentUser={currentUser}
-            initialTab={activeProfileTab || 'overview'}
-            onNavigateToProblem={(probId) => {
-              loadProblemDetails(probId);
-              navigateTo('workspace');
-            }}
-            onNavigateToContest={(contestId) => {
-              navigateTo('leaderboard', true, null, contestId);
-            }}
-          />
-        )
+        ) : null
       )}
 
       {/* 10. Code Practice & Contest Workspace */}

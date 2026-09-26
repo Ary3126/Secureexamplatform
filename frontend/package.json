@@ -25,6 +25,7 @@
     "test:phase5_8_5": "node test_phase5_8_5_comparison_ui.js",
     "test:submissions": "node scripts/testRunner.js --category=submissions",
     "test:master_correction": "node test_master_correction_ui.js",
+    "test:phase6": "node test_phase6_stabilization_ui.js",
     "preview": "vite preview"
   },
   "dependencies": {

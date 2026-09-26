@@ -43,7 +43,8 @@
     "test:phase5_8_4": "node test_phase5_8_4_distribution.js",
     "test:phase5_8_5": "node test_phase5_8_5_comparison.js",
     "test:submissions": "node scripts/testRunner.js --category=submissions",
-    "test:master_correction": "node test_master_correction_security.js"
+    "test:master_correction": "node test_master_correction_security.js",
+    "test:phase6": "node test_phase6_stabilization.js"
   },
   "keywords": [
     "competitive-programming",

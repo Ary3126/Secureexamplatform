@@ -103,7 +103,7 @@ export default function TopBar({
       crumbs.push({ label: 'Account Access', view: 'landing' });
       crumbs.push({ label: 'Create Account', active: true });
     } else {
-      crumbs.push({ label: 'SecureJudge', view: 'landing' });
+      crumbs.push({ label: 'CodeForge', view: 'landing' });
     }
 
     return crumbs;

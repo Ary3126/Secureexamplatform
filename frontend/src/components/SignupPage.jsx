@@ -145,7 +145,7 @@ export default function SignupPage({
         <div className="auth-header">
           <div className="auth-brand" onClick={onNavigateLanding} role="button" tabIndex={0} title="Back to Home">
             <ShieldCheck className="w-7 h-7 text-blue-500" />
-            <span className="brand-name">SecureJudge</span>
+            <span className="brand-name">CodeForge</span>
           </div>
           <h1 className="auth-title">Create Account</h1>
           <p className="auth-subtitle">Join the competitive programming and examination platform</p>

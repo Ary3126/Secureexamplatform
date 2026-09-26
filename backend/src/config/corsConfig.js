@@ -38,8 +38,11 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    // In non-production, allow all localhost ports
-    if (process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    // In non-production, allow all localhost ports AND Cloudflare tunnel URLs
+    if (process.env.NODE_ENV !== 'production' && (
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+      /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(origin)
+    )) {
       return callback(null, true);
     }
 

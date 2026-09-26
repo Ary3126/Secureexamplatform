@@ -10,6 +10,12 @@ const UserModel = require('../models/userModel');
 const AuditLogModel = require('../models/auditLogModel');
 const AuditLogger = require('../services/auditLogger');
 const { hashPassword, sanitizeUser } = require('../services/authService');
+const { getContestRuntimeState } = require('../services/contestService');
+const SystemHealthService = require('../services/systemHealthService');
+
+let cachedJudgeHealth = null;
+let lastJudgeCheck = 0;
+const JUDGE_CACHE_TTL_MS = 60000;
 
 const ALLOWED_ROLES = ['student', 'professor', 'contest_admin', 'super_admin'];
 
@@ -640,6 +646,8 @@ const updateUserStatus = async (req, res, next) => {
  */
 const getOverviewStats = async (req, res, next) => {
   try {
+    const t0 = process.hrtime.bigint();
+
     // 1. User metrics
     const userStatsRes = await db.query(`
       SELECT 
@@ -655,13 +663,47 @@ const getOverviewStats = async (req, res, next) => {
     const contestStatsRes = await db.query(`
       SELECT 
         COUNT(*)::int AS total_contests,
-        COUNT(CASE WHEN status = 'published' THEN 1 END)::int AS active_contests,
+        COUNT(CASE WHEN status = 'published' AND start_time <= NOW() AND end_time > NOW() THEN 1 END)::int AS active_contests,
+        COUNT(CASE WHEN status = 'published' AND start_time > NOW() THEN 1 END)::int AS upcoming_contests,
         COUNT(CASE WHEN status = 'draft' THEN 1 END)::int AS draft_contests,
         COUNT(CASE WHEN status = 'archived' THEN 1 END)::int AS archived_contests
       FROM contests;
     `);
 
-    // 3. Problem metrics
+    // 3. Active and upcoming contests list (max 6)
+    const recentContestsRes = await db.query(`
+      SELECT 
+        c.id, 
+        c.title, 
+        c.start_time AS "startTime", 
+        c.end_time AS "endTime", 
+        c.status,
+        COUNT(DISTINCT part.user_id)::int AS "participantCount"
+      FROM contests c
+      LEFT JOIN contest_participants part ON c.id = part.contest_id
+      WHERE c.status != 'archived'
+      GROUP BY c.id
+      ORDER BY 
+        CASE 
+          WHEN c.status = 'published' AND c.start_time <= NOW() AND c.end_time > NOW() THEN 1
+          WHEN c.status = 'published' AND c.start_time > NOW() THEN 2
+          ELSE 3
+        END,
+        c.start_time ASC
+      LIMIT 6;
+    `);
+
+    const formattedContests = recentContestsRes.rows.map((c) => ({
+      id: c.id,
+      title: c.title,
+      startTime: c.startTime,
+      endTime: c.endTime,
+      status: c.status,
+      runtimeState: getContestRuntimeState(c),
+      participantCount: Number(c.participantCount) || 0,
+    }));
+
+    // 4. Problem metrics
     const probStatsRes = await db.query(`
       SELECT 
         COUNT(*)::int AS total_problems,
@@ -673,7 +715,7 @@ const getOverviewStats = async (req, res, next) => {
       FROM problems;
     `);
 
-    // 4. Review queue metrics
+    // 5. Review queue metrics
     const reviewStatsRes = await db.query(`
       SELECT 
         COUNT(*)::int AS total_queue,
@@ -683,7 +725,7 @@ const getOverviewStats = async (req, res, next) => {
       FROM problem_reviews;
     `);
 
-    // 5. Recent audit activity
+    // 6. Recent audit activity (sanitized: only non-sensitive columns)
     const recentAuditRes = await db.query(`
       SELECT a.id, a.action, a.resource_type, a.resource_id, a.outcome, a.created_at,
              u.username AS actor_name, u.role AS actor_role
@@ -693,19 +735,40 @@ const getOverviewStats = async (req, res, next) => {
       LIMIT 10;
     `);
 
+    const dbDurationMs = Math.round(Number(process.hrtime.bigint() - t0) / 1e4) / 100;
+
+    // 7. System Health check (cached judge compilers)
+    let judgeHealth = cachedJudgeHealth;
+    if (!judgeHealth || Date.now() - lastJudgeCheck > JUDGE_CACHE_TTL_MS) {
+      try {
+        judgeHealth = await SystemHealthService.checkJudgeHealth();
+        cachedJudgeHealth = judgeHealth;
+        lastJudgeCheck = Date.now();
+      } catch {
+        judgeHealth = { status: 'DEGRADED', message: 'Compiler check pending' };
+      }
+    }
+
     return res.status(200).json({
       status: 'success',
       data: {
         users: userStatsRes.rows[0],
         contests: contestStatsRes.rows[0],
+        recentContests: formattedContests,
         problems: probStatsRes.rows[0],
         reviews: reviewStatsRes.rows[0],
         recentActivity: recentAuditRes.rows,
         system: {
           databaseStatus: 'connected',
+          apiStatus: 'HEALTHY',
+          databaseLatencyMs: dbDurationMs,
+          judgeStatus: judgeHealth?.status || 'HEALTHY',
+          judgeMessage: judgeHealth?.message || 'Compilers available',
+          compilers: judgeHealth?.compilers || {},
           uptimeSeconds: Math.floor(process.uptime()),
           nodeVersion: process.version,
           environment: process.env.NODE_ENV || 'development',
+          timestamp: new Date().toISOString(),
         },
       },
     });

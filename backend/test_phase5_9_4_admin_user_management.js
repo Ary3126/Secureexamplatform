@@ -253,7 +253,7 @@ async function runTests() {
     // Verify Password Hash in PostgreSQL database
     const dbUserRow = await UserModel.findUserById(createdUserId);
     assert(dbUserRow.password_hash !== 'SecureAdminPassword123!', '6f. Password in DB is hashed, NOT plaintext');
-    assert(dbUserRow.password_hash.startsWith('$2b$'), '6g. Password is valid bcrypt hash');
+    assert(dbUserRow.password_hash.startsWith('$2a$') || dbUserRow.password_hash.startsWith('$2b$'), '6g. Password is valid bcrypt hash');
 
     // Verify Audit Event USER_CREATED
     const auditRes = await db.query(`

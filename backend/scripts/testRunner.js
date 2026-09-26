@@ -49,18 +49,19 @@ const SUITE_DEFINITIONS = {
   admin_governance: { file: 'test_admin_governance_platform.js', name: 'Admin Platform Governance & Role Separation', tags: ['security', 'admin', 'governance', 'api', 'unit'] },
   phase5_9_10: { file: 'test_phase5_9_10_platform_reliability.js', name: 'Platform Reliability, Observability & Health Probes', tags: ['reliability', 'observability', 'health', 'security', 'api', 'unit'] },
   master_correction: { file: 'test_master_correction_security.js', name: 'Public/Private Scoping & Master Hardening', tags: ['security', 'api', 'feature', 'contest'] },
+  phase6: { file: 'test_phase6_stabilization.js', name: 'Phase 6 Platform Stabilization Verification', tags: ['security', 'api', 'feature', 'health', 'judge', 'unit'] },
 };
 
 // Logical Category Mappings
 const CATEGORIES = {
   submissions: ['phase5_8_1', 'phase5_8_2', 'phase5_8_3', 'phase5_8_4', 'phase5_8_5'],
   skills: ['skills571', 'skills572', 'skills573', 'skills574', 'skills575', 'skills577'],
-  unit: ['phase4b2', 'phase4b3', 'phase4b4', 'skills575', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_3', 'phase5_8_4', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10'],
-  feature: ['phase2', 'phase3', 'phase4a_extra', 'skills575', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction'],
-  api: ['phase2', 'phase3', 'api_security', 'security_audit', 'skills575', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction'],
-  security: ['api_security', 'security_audit', 'phase4b6', 'phase4b3', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction'],
-  judge: ['phase4a', 'phase4a_extra', 'phase4b1', 'phase4b2', 'phase4b5', 'phase4b6', 'phase4b7'],
-  fast: ['phase2', 'phase3', 'phase4b2', 'phase4b3', 'phase4b4', 'api_security', 'skills575', 'phase5_8_1', 'phase5_8_2', 'phase5_8_3', 'phase5_8_4', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction'],
+  unit: ['phase4b2', 'phase4b3', 'phase4b4', 'skills575', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_3', 'phase5_8_4', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'phase6'],
+  feature: ['phase2', 'phase3', 'phase4a_extra', 'skills575', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction', 'phase6'],
+  api: ['phase2', 'phase3', 'api_security', 'security_audit', 'skills575', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction', 'phase6'],
+  security: ['api_security', 'security_audit', 'phase4b6', 'phase4b3', 'skills577', 'phase5_8_1', 'phase5_8_2', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction', 'phase6'],
+  judge: ['phase4a', 'phase4a_extra', 'phase4b1', 'phase4b2', 'phase4b5', 'phase4b6', 'phase4b7', 'phase6'],
+  fast: ['phase2', 'phase3', 'phase4b2', 'phase4b3', 'phase4b4', 'api_security', 'skills575', 'phase5_8_1', 'phase5_8_2', 'phase5_8_3', 'phase5_8_4', 'phase5_8_5', 'phase5_9_3', 'phase5_9_4', 'phase5_9_5', 'phase5_9_6', 'phase5_9_7', 'phase5_9_8', 'phase5_9_10', 'master_correction', 'phase6'],
   all: Object.keys(SUITE_DEFINITIONS),
 };
 

@@ -129,7 +129,7 @@ export default function Sidebar({
           onClick={() => onSelectView('landing')}
           role="button"
           tabIndex={0}
-          title="SecureJudge - Return to Home"
+          title="CodeForge - Return to Home"
           onKeyDown={(e) => e.key === 'Enter' && onSelectView('landing')}
         >
           <div className="brand-logo-icon">
@@ -137,7 +137,7 @@ export default function Sidebar({
           </div>
           {!collapsed && (
             <div className="brand-text-col">
-              <span className="brand-name">SecureJudge</span>
+              <span className="brand-name">CodeForge</span>
               <span className="brand-subtext">Competitive Coding</span>
             </div>
           )}

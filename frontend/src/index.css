@@ -808,29 +808,70 @@ select optgroup {
 
 /* Platform Features Section */
 .landing-features-section {
-  padding: 70px 32px;
+  padding: 84px 32px 70px;
   max-width: 1280px;
   margin: 0 auto;
 }
 
 .section-header-block {
   text-align: center;
-  max-width: 640px;
-  margin: 0 auto 50px;
+  max-width: 720px;
+  margin: 0 auto 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-.section-title {
-  font-size: 2rem;
+.section-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background-color: rgba(59, 130, 246, 0.12);
+  color: var(--accent-primary);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  margin-bottom: 16px;
+}
+
+.section-header-block .section-title,
+.landing-features-section .section-title {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.section-header-block .section-subtitle,
+.landing-features-section .section-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  text-align: center;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.section-header-row .section-title,
+.landing-problems-section .section-title {
+  font-size: 1.85rem;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--text-primary);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
-.section-subtitle {
-  font-size: 1rem;
+.section-header-row .section-subtitle,
+.landing-problems-section .section-subtitle {
+  font-size: 0.95rem;
   color: var(--text-secondary);
-  line-height: 1.6;
 }
 
 .features-grid {
@@ -1523,7 +1564,8 @@ select optgroup {
   gap: 20px;
 }
 
-.section-title {
+.problem-pane .section-title,
+.problem-content .section-title {
   font-size: 0.9rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -2614,6 +2656,13 @@ select optgroup {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.card-header-left .section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0;
 }
 
 .section-icon-badge {

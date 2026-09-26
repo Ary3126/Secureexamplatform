@@ -18,7 +18,28 @@ class HarnessBuilder {
 
     if (harnessTemplates[lang]) {
       const template = harnessTemplates[lang];
-      return template.replace(/(\/\/|\/\*|#)\s*__STUDENT_CODE__\s*(\*\/)?/g, sourceCode);
+      // Replace the // __STUDENT_CODE__ (or /* __STUDENT_CODE__ */) placeholder
+      const placeholder = '__STUDENT_CODE__';
+      let code;
+      if (template.includes(placeholder)) {
+        // Remove the comment wrapper around the placeholder and inject student code safely preserving line separation
+        code = template.replace(
+          /(?:\/\/|\/\*|#)[^\S\r\n]*__STUDENT_CODE__[^\S\r\n]*(?:\*\/)?/g,
+          `\n${sourceCode}\n`
+        );
+      } else {
+        code = template;
+      }
+
+      // Java: the runner always saves the file as Solution.java.
+      // Java requires the public class name to match the filename.
+      // Demote any `public class <NonSolution>` to `class <NonSolution>` so
+      // Solution.java compiles even when the harness template uses `class Main`.
+      if (lang === 'java') {
+        code = code.replace(/\bpublic\s+class\s+(?!Solution\b)(\w+)/g, 'class $1');
+      }
+
+      return code;
     }
 
     switch (lang) {
@@ -125,7 +146,11 @@ if __name__ == '__main__':
             Solution sol = new Solution();
             java.lang.reflect.Method targetMethod = null;
             for (java.lang.reflect.Method m : Solution.class.getDeclaredMethods()) {
-                if (m.getName().equals("solve") || m.getName().equals("twoSum") || m.getName().equals("mainLogic")) {
+                if (m.getName().equals("solve") || m.getName().equals("twoSum") || m.getName().equals("mainLogic")
+                    || m.getName().equals("subarraySum") || m.getName().equals("maxSubArray")
+                    || m.getName().equals("longestCommonSubsequence") || m.getName().equals("numIslands")
+                    || m.getName().equals("climbStairs") || m.getName().equals("coinChange")
+                    || !m.getName().startsWith("access$")) {
                     targetMethod = m;
                     break;
                 }
@@ -143,8 +168,23 @@ if __name__ == '__main__':
             Object[] argsToPass = new Object[paramTypes.length];
 
             if (paramTypes.length == 2) {
-                argsToPass[0] = Integer.parseInt(tokens.get(0));
-                argsToPass[1] = Integer.parseInt(tokens.get(1));
+                // Case 1: (int[], int) — e.g. subarraySum(int[] nums, int k)
+                if (paramTypes[0] == int[].class && (paramTypes[1] == int.class || paramTypes[1] == Integer.class)) {
+                    int k = Integer.parseInt(tokens.get(tokens.size() - 1));
+                    int[] arr = new int[tokens.size() - 1];
+                    for (int i = 0; i < tokens.size() - 1; i++) arr[i] = Integer.parseInt(tokens.get(i));
+                    argsToPass[0] = arr;
+                    argsToPass[1] = k;
+                // Case 2: (int, int) — two integers
+                } else if ((paramTypes[0] == int.class || paramTypes[0] == Integer.class)
+                        && (paramTypes[1] == int.class || paramTypes[1] == Integer.class)) {
+                    argsToPass[0] = Integer.parseInt(tokens.get(0));
+                    argsToPass[1] = Integer.parseInt(tokens.get(1));
+                // Case 3: (String[], int) or other combos — best effort
+                } else {
+                    argsToPass[0] = Integer.parseInt(tokens.get(0));
+                    argsToPass[1] = Integer.parseInt(tokens.get(1));
+                }
             } else if (paramTypes.length == 1) {
                 if (paramTypes[0] == int.class || paramTypes[0] == Integer.class) {
                     argsToPass[0] = Integer.parseInt(tokens.get(0));

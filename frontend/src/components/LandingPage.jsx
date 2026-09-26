@@ -207,6 +207,7 @@ class Solution {
       {/* 2. Platform Features Grid */}
       <section className="landing-features-section">
         <div className="section-header-block">
+          <span className="section-badge">Platform Capabilities</span>
           <h2 className="section-title">Built for Serious Competitive Coders</h2>
           <p className="section-subtitle">
             Engineered from the ground up for speed, accuracy, and rigorous evaluation.
@@ -333,7 +334,7 @@ class Solution {
           <div className="cta-banner-content">
             <h2 className="cta-title">Ready to Test Your Algorithmic Skills?</h2>
             <p className="cta-text">
-              Join students and competitive coders on SecureJudge. Practice problem sets, participate in live contests, and track your coding journey.
+              Join students and competitive coders on CodeForge. Practice problem sets, participate in live contests, and track your coding journey.
             </p>
             <div className="cta-btn-row">
               <button className="btn btn-primary" onClick={onNavigateSignup}>
@@ -354,7 +355,7 @@ class Solution {
           <div className="footer-brand-col">
             <div className="footer-brand">
               <ShieldCheck className="w-5 h-5 text-blue-500" />
-              <span>SecureJudge</span>
+              <span>CodeForge</span>
             </div>
             <p className="footer-tagline">
               Secure Competitive Programming & Examination Platform.
@@ -383,7 +384,7 @@ class Solution {
         </div>
 
         <div className="footer-bottom-bar">
-          <span>&copy; {new Date().getFullYear()} SecureJudge Platform. All rights reserved.</span>
+          <span>&copy; {new Date().getFullYear()} CodeForge Platform. All rights reserved.</span>
           <div className="footer-bottom-badges">
             <span className="system-pill-live">
               <span className="live-pulse"></span>

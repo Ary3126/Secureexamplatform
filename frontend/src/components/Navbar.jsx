@@ -74,10 +74,10 @@ export default function Navbar({
           onClick={() => handleNavClick('landing')}
           role="button"
           tabIndex={0}
-          title="SecureJudge Home"
+          title="CodeForge Home"
         >
           <ShieldCheck className="w-6 h-6 text-blue-500 flex-shrink-0" />
-          <span className="brand-name">SecureJudge</span>
+          <span className="brand-name">CodeForge</span>
         </div>
 
         {/* Desktop Navigation Links */}
@@ -267,7 +267,7 @@ export default function Navbar({
             <div className="mobile-drawer-header">
               <div className="nav-brand">
                 <ShieldCheck className="w-6 h-6 text-blue-500" />
-                <span className="brand-name">SecureJudge</span>
+                <span className="brand-name">CodeForge</span>
               </div>
               <button
                 type="button"

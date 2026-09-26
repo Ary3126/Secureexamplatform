@@ -60,7 +60,7 @@ app.get('/health', publicReadRateLimiter, (req, res) => {
 
 app.get('/', publicReadRateLimiter, (req, res) => {
   res.status(200).json({
-    name: 'Secure Competitive Programming & Examination Platform API',
+    name: 'CodeForge — Competitive Programming & Examination Platform API',
     version: '5.0.0',
     status: 'Running',
     security: {
@@ -101,7 +101,7 @@ const listenOnAvailablePort = (initialPort, maxAttempts = 10) => {
           console.warn('[PORT NOTICE] Primary port ' + initialPort + ' was occupied. Automatically switched to fallback port: ' + currentPort);
         }
         console.log('=======================================================');
-        console.log(' Secure Exam Platform Backend Server Started (Phase 5) ');
+        console.log(' CodeForge Backend Server Started (Phase 5)            ');
         console.log(' Environment: ' + config.nodeEnv);
         console.log(' Listening on: http://localhost:' + currentPort);
         console.log(' Health check: http://localhost:' + currentPort + '/api/health');

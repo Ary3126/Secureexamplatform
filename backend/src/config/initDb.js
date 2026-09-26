@@ -154,6 +154,29 @@ const initDb = async () => {
         WHEN OTHERS THEN NULL;
       END $$;
 
+      -- Ensure problem_validation_configs schema supports Phase 4B/5 validation fields
+      CREATE TABLE IF NOT EXISTS problem_validation_configs (
+        problem_id INTEGER PRIMARY KEY REFERENCES problems(id) ON DELETE CASCADE,
+        validation_enabled BOOLEAN NOT NULL DEFAULT true,
+        generator_type VARCHAR(50) NOT NULL DEFAULT 'range_generator',
+        generator_params JSONB NOT NULL DEFAULT '{"min": 1, "max": 1000}'::jsonb,
+        random_test_count INTEGER NOT NULL DEFAULT 10,
+        oracle_code TEXT,
+        oracle_language VARCHAR(20) DEFAULT 'javascript',
+        time_limit_ms INTEGER NOT NULL DEFAULT 2000,
+        memory_limit_mb INTEGER NOT NULL DEFAULT 128,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      ALTER TABLE problem_validation_configs ADD COLUMN IF NOT EXISTS id SERIAL;
+      ALTER TABLE problem_validation_configs ADD COLUMN IF NOT EXISTS random_enabled BOOLEAN DEFAULT true;
+      ALTER TABLE problem_validation_configs ADD COLUMN IF NOT EXISTS edge_enabled BOOLEAN DEFAULT false;
+      ALTER TABLE problem_validation_configs ADD COLUMN IF NOT EXISTS boundary_enabled BOOLEAN DEFAULT false;
+      ALTER TABLE problem_validation_configs ADD COLUMN IF NOT EXISTS generator_config JSONB DEFAULT '{}';
+      ALTER TABLE problem_validation_configs ADD COLUMN IF NOT EXISTS reference_solution JSONB DEFAULT '{}';
+      ALTER TABLE problem_validation_configs ADD COLUMN IF NOT EXISTS validation_metadata JSONB DEFAULT '{}';
+
       -- Seed persistent test users for automated suites
       INSERT INTO users (username, email, password_hash, full_name, role, current_rating, highest_rating, rating_status)
       VALUES 
@@ -388,7 +411,7 @@ const initDb = async () => {
     await query(`
       UPDATE problems 
       SET access_scope = 'contest_private' 
-      WHERE title NOT IN ('Two Sum', 'Subarray Sum');
+      WHERE title NOT IN ('Two Sum', 'Subarray Sum', 'Palindrome Number');
     `);
 
     // 4a. Seed Canonical Public Problem: Two Sum (EASY - Function Mode)
