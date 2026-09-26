@@ -10,7 +10,7 @@ const { canManageResource } = require('../services/contestService');
  */
 const createProblem = async (req, res, next) => {
   try {
-    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope } = req.body;
+    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope, testCases } = req.body;
     const createdBy = req.user.id;
 
     // Role-based Access Scope Enforcing:
@@ -30,6 +30,7 @@ const createProblem = async (req, res, next) => {
       harnessTemplates,
       accessScope: effectiveScope,
       createdBy,
+      testCases,
     }, req.user, req);
 
     return res.status(201).json({

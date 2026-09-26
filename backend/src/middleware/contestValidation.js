@@ -127,6 +127,22 @@ const validateCreateProblem = (req, res, next) => {
     errors.push('Difficulty is required and must be one of: easy, medium, hard.');
   }
 
+  const effectiveCodingMode = req.body.codingMode !== undefined ? req.body.codingMode : req.body.coding_mode;
+  if (effectiveCodingMode !== undefined) {
+    const validModes = ['full_program', 'function'];
+    if (typeof effectiveCodingMode !== 'string' || !validModes.includes(effectiveCodingMode.toLowerCase())) {
+      errors.push('codingMode must be one of: full_program, function.');
+    }
+  }
+
+  const effectiveAccessScope = req.body.accessScope !== undefined ? req.body.accessScope : req.body.access_scope;
+  if (effectiveAccessScope !== undefined) {
+    const validScopes = ['public', 'contest_private', 'class', 'institution'];
+    if (typeof effectiveAccessScope !== 'string' || !validScopes.includes(effectiveAccessScope.toLowerCase())) {
+      errors.push('accessScope must be one of: public, contest_private, class, institution.');
+    }
+  }
+
   if (errors.length > 0) {
     return res.status(400).json({
       status: 'error',
@@ -165,8 +181,36 @@ const validateUpdateProblem = (req, res, next) => {
     }
   }
 
-  if (title === undefined && description === undefined && difficulty === undefined) {
-    errors.push('Please provide at least one field to update (title, description, difficulty).');
+  const effectiveCodingMode = req.body.codingMode !== undefined ? req.body.codingMode : req.body.coding_mode;
+  if (effectiveCodingMode !== undefined) {
+    const validModes = ['full_program', 'function'];
+    if (typeof effectiveCodingMode !== 'string' || !validModes.includes(effectiveCodingMode.toLowerCase())) {
+      errors.push('codingMode must be one of: full_program, function.');
+    }
+  }
+
+  const effectiveAccessScope = req.body.accessScope !== undefined ? req.body.accessScope : req.body.access_scope;
+  if (effectiveAccessScope !== undefined) {
+    const validScopes = ['public', 'contest_private', 'class', 'institution'];
+    if (typeof effectiveAccessScope !== 'string' || !validScopes.includes(effectiveAccessScope.toLowerCase())) {
+      errors.push('accessScope must be one of: public, contest_private, class, institution.');
+    }
+  }
+
+  const hasAnyField = (
+    title !== undefined ||
+    description !== undefined ||
+    difficulty !== undefined ||
+    effectiveCodingMode !== undefined ||
+    effectiveAccessScope !== undefined ||
+    req.body.starterTemplates !== undefined ||
+    req.body.starter_templates !== undefined ||
+    req.body.harnessTemplates !== undefined ||
+    req.body.harness_templates !== undefined
+  );
+
+  if (!hasAnyField) {
+    errors.push('Please provide at least one field to update (title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope).');
   }
 
   if (errors.length > 0) {

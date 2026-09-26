@@ -45,7 +45,8 @@
     "test:submissions": "node scripts/testRunner.js --category=submissions",
     "test:master_correction": "node test_master_correction_security.js",
     "test:phase6": "node test_phase6_stabilization.js",
-    "test:phase7_4_1": "node test_admin_phase4_1_problems_architecture.js"
+    "test:phase7_4_1": "node test_admin_phase4_1_problems_architecture.js",
+    "test:phase7_4_3": "node test_admin_phase4_3_editor_integration.js"
   },
   "keywords": [
     "competitive-programming",

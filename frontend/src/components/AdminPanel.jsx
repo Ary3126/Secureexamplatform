@@ -276,6 +276,10 @@ function ProblemsSection({ token, currentUser, onNavigateSubroute }) {
         token={token}
         currentUser={currentUser}
         onBack={() => navigateSubroute('list')}
+        onSaved={() => {
+          fetchProblems();
+          navigateSubroute('list');
+        }}
       />
     );
   }
@@ -288,6 +292,9 @@ function ProblemsSection({ token, currentUser, onNavigateSubroute }) {
         token={token}
         currentUser={currentUser}
         onBack={() => navigateSubroute('list')}
+        onSaved={() => {
+          fetchProblems();
+        }}
       />
     );
   }
