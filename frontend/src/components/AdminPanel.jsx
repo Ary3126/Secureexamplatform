@@ -10,6 +10,8 @@ import AdminProblemGovernance from './admin/AdminProblemGovernance';
 import AdminContestManagement from './admin/AdminContestManagement';
 import AdminReviewGovernance from './admin/AdminReviewGovernance';
 import AdminObservability from './admin/AdminObservability';
+// Phase 7.1: Audit Logs section — wired from orphaned component
+import AdminAuditLogs from './admin/AdminAuditLogs';
 
 const ADMIN_SIDEBAR_STORAGE_KEY = 'securejudge_admin_sidebar_collapsed';
 
@@ -80,14 +82,15 @@ function UsersSection({ token, currentUser }) {
     }
   };
 
-  const handleToggleUserStatus = async (userId, currentStatus) => {
+  const handleToggleUserStatus = async (userId, currentIsActive) => {
     setIsProcessing(true);
-    const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+    // Phase 7.1 Bug P1 Fix: backend expects { isActive: boolean }, not { status: string }
+    const newIsActive = !currentIsActive;
     try {
       const res = await fetch(`/api/admin/users/${userId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ isActive: newIsActive }),
       });
       if (res.ok) fetchUsers();
     } catch (err) {
@@ -277,6 +280,15 @@ function ReviewsSection({ token }) {
   );
 }
 
+// ── Audit Logs Section Container (Phase 7.1) ───────────────────────────────
+// Previously orphaned AdminAuditLogs.jsx is now wired here.
+// Backend: GET /api/admin/audit-logs (implemented, verified in Phase 5.9)
+function AuditSection({ token }) {
+  return (
+    <AdminAuditLogs token={token} />
+  );
+}
+
 // ── Main AdminPanel Component ──────────────────────────────────────────────
 
 /**
@@ -397,6 +409,11 @@ export default function AdminPanel({
           {/* Problem Reviews & SLA Oversight */}
           {activeSection === 'reviews' && (
             <ReviewsSection token={token} />
+          )}
+
+          {/* Audit Logs & Security Events — Phase 7.1: wired from orphaned AdminAuditLogs */}
+          {activeSection === 'audit' && (
+            <AuditSection token={token} />
           )}
 
           {/* System Observability — health, metrics, incidents */}

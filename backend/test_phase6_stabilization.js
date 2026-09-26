@@ -16,12 +16,14 @@
 const assert = require('assert');
 const http = require('http');
 const db = require('./src/config/db');
+const { app } = require('./src/server');
 const UserModel = require('./src/models/userModel');
 const ProblemModel = require('./src/models/problemModel');
 const ContestModel = require('./src/models/contestModel');
 const HarnessBuilder = require('./src/judge/harness/harnessBuilder');
 
-const BASE_URL = 'http://localhost:5000/api';
+let BASE_URL = 'http://localhost:5000/api';
+let testServer = null;
 
 async function apiRequest(endpoint, method = 'GET', body = null, token = null) {
   const headers = {
@@ -51,6 +53,20 @@ async function runPhase6Tests() {
   console.log('\n=======================================================');
   console.log(' STARTING PHASE 6 PLATFORM STABILIZATION VERIFICATION');
   console.log('=======================================================\n');
+
+  try {
+    const health = await fetch('http://localhost:5000/api/health');
+    if (!health.ok) throw new Error('Port 5000 not ready');
+  } catch (e) {
+    await new Promise((resolve) => {
+      testServer = http.createServer(app);
+      testServer.listen(0, () => {
+        const port = testServer.address().port;
+        BASE_URL = `http://localhost:${port}/api`;
+        resolve();
+      });
+    });
+  }
 
   let passed = 0;
   let total = 0;
@@ -263,7 +279,10 @@ async function runPhase6Tests() {
     assert.strictEqual(oversizedRes.status, 400);
   });
 
-  // Execute clean Function Mode solution on Problem 124 (Two Sum)
+  // Execute clean Function Mode solution on Problem (Two Sum)
+  const twoSumQuery = await db.query("SELECT id FROM problems WHERE title = 'Two Sum' LIMIT 1");
+  const twoSumProblemId = twoSumQuery.rows[0]?.id || 124;
+
   const validPythonSolution = `class Solution:
     def solve(self, nums, target):
         seen = {}
@@ -275,7 +294,7 @@ async function runPhase6Tests() {
         return []
 `;
   const runExecRes = await apiRequest('/submissions/run', 'POST', {
-    problemId: 124,
+    problemId: twoSumProblemId,
     language: 'python',
     sourceCode: validPythonSolution,
     codingMode: 'function',
@@ -290,7 +309,7 @@ async function runPhase6Tests() {
   
   // Submit official solution
   const submitRes = await apiRequest('/submissions', 'POST', {
-    problemId: 124,
+    problemId: twoSumProblemId,
     language: 'python',
     sourceCode: validPythonSolution,
     codingMode: 'function',
@@ -382,11 +401,13 @@ async function runPhase6Tests() {
 
 runPhase6Tests()
   .then(() => {
+    if (testServer) testServer.close();
     db.pool.end();
     process.exit(0);
   })
   .catch((err) => {
     console.error('Test Suite Failed:', err);
+    if (testServer) testServer.close();
     db.pool.end();
     process.exit(1);
   });

@@ -1,6 +1,9 @@
 /**
- * Admin Navigation Configuration (Phase 1 Foundation & Shell)
+ * Admin Navigation Configuration (Phase 7.1 — Admin Architecture & Layout)
  * Defines items, icons, paths, and metadata for the Platform Governor Console.
+ *
+ * Phase 7.1 change: Added 'audit' as the 7th navigation section.
+ * Audit Logs section wires the existing AdminAuditLogs.jsx component.
  */
 
 export const ADMIN_NAV_ITEMS = [
@@ -35,6 +38,12 @@ export const ADMIN_NAV_ITEMS = [
     path: '/admin/reviews',
   },
   {
+    id: 'audit',
+    label: 'Audit Logs',
+    iconName: 'FileText',
+    path: '/admin/audit',
+  },
+  {
     id: 'system',
     label: 'System',
     iconName: 'Server',
@@ -48,15 +57,17 @@ export const ADMIN_SECTION_LABELS = {
   problems: 'Problem Bank Governance',
   contests: 'Contests & Exams',
   reviews: 'Problem Reviews & SLAs',
+  audit: 'Audit Logs & Security Events',
   system: 'System & Observability',
 };
 
 export const parseAdminSection = (pathname) => {
-  const path = (pathname || '').toLowerCase();
-  if (path === '/admin/users' || path.startsWith('/admin/users/')) return 'users';
-  if (path === '/admin/problems' || path.startsWith('/admin/problems/')) return 'problems';
-  if (path === '/admin/contests' || path.startsWith('/admin/contests/')) return 'contests';
-  if (path === '/admin/reviews' || path.startsWith('/admin/reviews/')) return 'reviews';
-  if (path === '/admin/system' || path.startsWith('/admin/system/')) return 'system';
+  const cleanPath = (pathname || '').split('?')[0].split('#')[0].toLowerCase().trim();
+  if (cleanPath === '/admin/users' || cleanPath.startsWith('/admin/users/')) return 'users';
+  if (cleanPath === '/admin/problems' || cleanPath.startsWith('/admin/problems/')) return 'problems';
+  if (cleanPath === '/admin/contests' || cleanPath.startsWith('/admin/contests/')) return 'contests';
+  if (cleanPath === '/admin/reviews' || cleanPath.startsWith('/admin/reviews/')) return 'reviews';
+  if (cleanPath === '/admin/audit' || cleanPath.startsWith('/admin/audit/')) return 'audit';
+  if (cleanPath === '/admin/system' || cleanPath.startsWith('/admin/system/')) return 'system';
   return 'dashboard';
 };

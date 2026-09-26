@@ -26,6 +26,8 @@
     "test:submissions": "node scripts/testRunner.js --category=submissions",
     "test:master_correction": "node test_master_correction_ui.js",
     "test:phase6": "node test_phase6_stabilization_ui.js",
+    "test:admin": "node scripts/testRunner.js --category=admin",
+    "test:phase7_1": "node test_admin_phase1_shell.js",
     "preview": "vite preview"
   },
   "dependencies": {

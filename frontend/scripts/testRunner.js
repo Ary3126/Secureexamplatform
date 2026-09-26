@@ -32,10 +32,11 @@ const SUITE_DEFINITIONS = {
   comparison_ui: { file: 'test_phase5_8_5_comparison_ui.js', name: 'Submission Comparison UI & Authorization Separation', tags: ['submissions', 'ui', 'comparison'] },
   master_correction_ui: { file: 'test_master_correction_ui.js', name: 'Master Correction & Button Deduplication UI', tags: ['workspace', 'ui', 'scroll'] },
   phase6_ui: { file: 'test_phase6_stabilization_ui.js', name: 'Phase 6 Frontend Stabilization & Architecture Verification', tags: ['ui', 'architecture', 'nav', 'fast'] },
+  admin_shell: { file: 'test_admin_phase1_shell.js', name: 'Admin Architecture & Layout Shell (Phase 7.1)', tags: ['admin', 'shell', 'nav', 'fast'] },
 };
 
 const CATEGORIES = {
-  nav: ['nav'],
+  nav: ['nav', 'admin_shell'],
   auth: ['auth'],
   dashboard: ['dashboard', 'submissions', 'profile', 'skills_ui'],
   contest: ['standings', 'rating'],
@@ -43,7 +44,8 @@ const CATEGORIES = {
   profile: ['profile', 'skills_ui'],
   skills_ui: ['skills_ui'],
   submissions: ['submissions', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui'],
-  fast: ['nav', 'auth', 'dashboard', 'profile', 'skills_ui', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui', 'master_correction_ui', 'phase6_ui'],
+  admin: ['admin_shell'],
+  fast: ['nav', 'auth', 'dashboard', 'profile', 'skills_ui', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui', 'master_correction_ui', 'phase6_ui', 'admin_shell'],
   all: Object.keys(SUITE_DEFINITIONS),
   regression: Object.keys(SUITE_DEFINITIONS),
 };

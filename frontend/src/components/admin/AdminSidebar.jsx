@@ -6,6 +6,7 @@ import {
   BookOpen,
   Trophy,
   Inbox,
+  FileText,
   Server,
   ChevronLeft,
   ChevronRight,
@@ -20,6 +21,7 @@ const ICON_MAP = {
   BookOpen,
   Trophy,
   Inbox,
+  FileText,
   Server,
 };
 

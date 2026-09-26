@@ -87,6 +87,7 @@ function MainApp() {
     if (path === '/admin/problems' || path.startsWith('/admin/problems/')) return 'problems';
     if (path === '/admin/contests' || path.startsWith('/admin/contests/')) return 'contests';
     if (path === '/admin/reviews' || path.startsWith('/admin/reviews/')) return 'reviews';
+    if (path === '/admin/audit' || path.startsWith('/admin/audit/')) return 'audit';
     if (path === '/admin/system' || path.startsWith('/admin/system/')) return 'system';
     return 'dashboard';
   };
@@ -148,6 +149,7 @@ function MainApp() {
         else if (sec === 'problems') path = '/admin/problems';
         else if (sec === 'contests') path = '/admin/contests';
         else if (sec === 'reviews') path = '/admin/reviews';
+        else if (sec === 'audit') path = '/admin/audit';
         else if (sec === 'system') path = '/admin/system';
         else path = '/admin';
       }
