@@ -655,6 +655,7 @@ const getOverviewStats = async (req, res, next) => {
         COUNT(CASE WHEN role = 'student' THEN 1 END)::int AS total_students,
         COUNT(CASE WHEN role = 'professor' THEN 1 END)::int AS total_professors,
         COUNT(CASE WHEN role = 'super_admin' THEN 1 END)::int AS total_admins,
+        COUNT(CASE WHEN is_active = true THEN 1 END)::int AS active_users,
         COUNT(CASE WHEN is_active = false THEN 1 END)::int AS total_suspended
       FROM users;
     `);
@@ -725,7 +726,33 @@ const getOverviewStats = async (req, res, next) => {
       FROM problem_reviews;
     `);
 
-    // 6. Recent audit activity (sanitized: only non-sensitive columns)
+    // 6. Submission metrics (evaluated non-sample submissions)
+    const subStatsRes = await db.query(`
+      SELECT 
+        COUNT(*)::int AS total_submissions,
+        COUNT(CASE WHEN status = 'accepted' THEN 1 END)::int AS accepted_submissions,
+        COUNT(CASE WHEN status = 'wrong_answer' THEN 1 END)::int AS wrong_answer_submissions,
+        COUNT(CASE WHEN status = 'runtime_error' THEN 1 END)::int AS runtime_error_submissions,
+        COUNT(CASE WHEN status = 'compilation_error' THEN 1 END)::int AS compilation_error_submissions,
+        COUNT(CASE WHEN status IN ('time_limit_exceeded', 'memory_limit_exceeded') THEN 1 END)::int AS resource_limit_submissions
+      FROM submissions
+      WHERE is_sample_run = false;
+    `);
+
+    const subRow = subStatsRes.rows[0] || {};
+    const acceptedSubs = subRow.accepted_submissions || 0;
+    const evaluatedSubs = (subRow.accepted_submissions || 0) +
+      (subRow.wrong_answer_submissions || 0) +
+      (subRow.runtime_error_submissions || 0) +
+      (subRow.compilation_error_submissions || 0) +
+      (subRow.resource_limit_submissions || 0);
+    const acceptanceRate = evaluatedSubs > 0 ? Math.round((acceptedSubs / evaluatedSubs) * 100) : 0;
+    const formattedSubmissions = {
+      ...subRow,
+      acceptance_rate: acceptanceRate,
+    };
+
+    // 7. Recent audit activity (sanitized: only non-sensitive columns)
     const recentAuditRes = await db.query(`
       SELECT a.id, a.action, a.resource_type, a.resource_id, a.outcome, a.created_at,
              u.username AS actor_name, u.role AS actor_role
@@ -737,7 +764,7 @@ const getOverviewStats = async (req, res, next) => {
 
     const dbDurationMs = Math.round(Number(process.hrtime.bigint() - t0) / 1e4) / 100;
 
-    // 7. System Health check (cached judge compilers)
+    // 8. System Health check (cached judge compilers)
     let judgeHealth = cachedJudgeHealth;
     if (!judgeHealth || Date.now() - lastJudgeCheck > JUDGE_CACHE_TTL_MS) {
       try {
@@ -756,6 +783,7 @@ const getOverviewStats = async (req, res, next) => {
         contests: contestStatsRes.rows[0],
         recentContests: formattedContests,
         problems: probStatsRes.rows[0],
+        submissions: formattedSubmissions,
         reviews: reviewStatsRes.rows[0],
         recentActivity: recentAuditRes.rows,
         system: {

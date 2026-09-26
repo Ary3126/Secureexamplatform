@@ -82,14 +82,19 @@ describe('Admin Panel Phase 2: Dashboard API & RBAC Suite', () => {
   });
 
   after(async () => {
-    // Cleanup test server
-    if (server) {
-      await new Promise((resolve) => server.close(resolve));
-    }
     // Cleanup test users
     if (testUsers.length > 0) {
       await db.query('DELETE FROM users WHERE id = ANY($1::int[])', [testUsers]);
     }
+    // Cleanup test server
+    if (server) {
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+      await new Promise((resolve) => server.close(resolve));
+    }
+    await db.pool.end();
+    setTimeout(() => process.exit(0), 50).unref();
   });
 
   it('1. Unauthenticated request to /api/admin/overview-stats returns 401 Unauthorized', async () => {
@@ -123,6 +128,7 @@ describe('Admin Panel Phase 2: Dashboard API & RBAC Suite', () => {
     assert.strictEqual(typeof data.users?.total_students, 'number');
     assert.strictEqual(typeof data.users?.total_professors, 'number');
     assert.strictEqual(typeof data.users?.total_admins, 'number');
+    assert.strictEqual(typeof data.users?.active_users, 'number');
 
     // Contests metrics
     assert.strictEqual(typeof data.contests?.total_contests, 'number');
@@ -135,6 +141,11 @@ describe('Admin Panel Phase 2: Dashboard API & RBAC Suite', () => {
     // Problems metrics
     assert.strictEqual(typeof data.problems?.total_problems, 'number');
     assert.strictEqual(typeof data.problems?.published_problems, 'number');
+
+    // Submissions metrics (Phase 7.2)
+    assert.strictEqual(typeof data.submissions?.total_submissions, 'number');
+    assert.strictEqual(typeof data.submissions?.accepted_submissions, 'number');
+    assert.strictEqual(typeof data.submissions?.acceptance_rate, 'number');
 
     // Review metrics
     assert.strictEqual(typeof data.reviews?.total_queue, 'number');

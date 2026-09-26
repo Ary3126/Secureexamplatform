@@ -28,6 +28,7 @@
     "test:phase6": "node test_phase6_stabilization_ui.js",
     "test:admin": "node scripts/testRunner.js --category=admin",
     "test:phase7_1": "node test_admin_phase1_shell.js",
+    "test:phase7_2": "node test_admin_phase2_dashboard.js",
     "preview": "vite preview"
   },
   "dependencies": {

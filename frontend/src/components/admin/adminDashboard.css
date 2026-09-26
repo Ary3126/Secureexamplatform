@@ -126,6 +126,50 @@
   background: #dc2626;
 }
 
+/* 2.5 Quick Actions Bar */
+.admin-quick-actions-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+}
+
+.admin-quick-actions-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 4px;
+}
+
+.admin-quick-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-quick-action-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  transform: translateY(-1px);
+}
+
 /* 3. Stat Cards Grid */
 .admin-stats-grid {
   display: grid;
@@ -203,6 +247,11 @@
 .admin-stat-icon-rose {
   background: rgba(244, 63, 94, 0.12);
   color: #fb7185;
+}
+
+.admin-stat-icon-violet {
+  background: rgba(129, 140, 248, 0.12);
+  color: #818cf8;
 }
 
 .admin-stat-value {
@@ -600,7 +649,95 @@
   height: 260px;
 }
 
-/* 11. Empty State */
+/* 11. Submissions Overview Section (Phase 7.2) */
+.admin-sub-rate-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  background: rgba(129, 140, 248, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  border-radius: 9999px;
+}
+
+.admin-submission-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-sub-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-sub-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+}
+
+.admin-sub-bar-pct {
+  font-weight: 700;
+  color: #818cf8;
+}
+
+.admin-sub-bar-track {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.admin-sub-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #818cf8, #34d399);
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.admin-sub-matrix {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.admin-sub-metric-box {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+}
+
+.admin-sub-metric-box:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.sub-metric-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.sub-metric-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.status-accepted .sub-metric-value { color: #34d399; }
+.status-wa .sub-metric-value { color: #f87171; }
+.status-re .sub-metric-value { color: #fb923c; }
+.status-ce .sub-metric-value { color: #facc15; }
+.status-limit .sub-metric-value { color: #c084fc; }
+.status-total .sub-metric-value { color: #38bdf8; }
+
+/* 12. Empty State */
 .admin-empty-state {
   display: flex;
   flex-direction: column;
@@ -616,7 +753,7 @@
   margin: 8px 0 0 0;
 }
 
-/* 12. Responsive Breakpoints */
+/* 13. Responsive Breakpoints */
 @media (max-width: 1024px) {
   .admin-dash-grid-2col {
     grid-template-columns: 1fr;
