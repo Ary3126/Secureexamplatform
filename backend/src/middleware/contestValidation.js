@@ -197,6 +197,9 @@ const validateFunctionConfig = (config, codingMode, errors) => {
 
   if (parameters !== undefined && parameters !== null) {
     if (Array.isArray(parameters)) {
+      if (parameters.length > 50) {
+        errors.push('Too many parameters (maximum 50 parameters allowed).');
+      }
       const seenNames = new Set();
       for (let i = 0; i < parameters.length; i++) {
         const param = parameters[i];
@@ -220,6 +223,10 @@ const validateFunctionConfig = (config, codingMode, errors) => {
 
         if (!pType) {
           errors.push(`Parameter "${pName || i + 1}" is missing a parameter type.`);
+        } else if (pType.length > 64) {
+          errors.push(`Parameter "${pName || i + 1}" type must not exceed 64 characters.`);
+        } else if (!/^[a-zA-Z0-9_\[\]\s*&<>,]+$/.test(pType)) {
+          errors.push(`Parameter "${pName || i + 1}" type contains invalid characters.`);
         }
       }
     } else if (typeof parameters === 'string') {
@@ -269,6 +276,8 @@ const validateCreateProblem = (req, res, next) => {
 
   if (!description || typeof description !== 'string' || description.trim().length < 5) {
     errors.push('Problem description is required and must be at least 5 characters long.');
+  } else if (description.length > 100000) {
+    errors.push('Problem description must not exceed 100,000 characters.');
   }
 
   const validDifficulties = ['easy', 'medium', 'hard'];
@@ -340,6 +349,8 @@ const validateUpdateProblem = (req, res, next) => {
   if (description !== undefined) {
     if (typeof description !== 'string' || description.trim().length < 5) {
       errors.push('Problem description must be at least 5 characters long.');
+    } else if (description.length > 100000) {
+      errors.push('Problem description must not exceed 100,000 characters.');
     }
   }
 

@@ -132,8 +132,17 @@ const getAllProblems = async (req, res, next) => {
 const getProblemById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
+
     const userId = req.user ? req.user.id : null;
-    const problem = await ProblemModel.findProblemById(id, userId);
+    const problem = await ProblemModel.findProblemById(parsedId, userId);
 
     if (!problem) {
       return res.status(404).json({
@@ -260,10 +269,19 @@ const getSavedProblems = async (req, res, next) => {
 const updateProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
+
     const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, functionConfig, accessScope, expectedVersion, version, testCases } = req.body;
     const allowedLanguages = req.body.allowedLanguages !== undefined ? req.body.allowedLanguages : req.body.allowed_languages;
 
-    const existingProblem = await ProblemModel.findProblemById(id);
+    const existingProblem = await ProblemModel.findProblemById(parsedId);
     if (!existingProblem) {
       return res.status(404).json({
         status: 'error',
@@ -331,8 +349,16 @@ const updateProblem = async (req, res, next) => {
 const publishProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
 
-    const existingProblem = await ProblemModel.findProblemById(id);
+    const existingProblem = await ProblemModel.findProblemById(parsedId);
     if (!existingProblem) {
       return res.status(404).json({
         status: 'error',
@@ -394,8 +420,16 @@ const publishProblem = async (req, res, next) => {
 const previewProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
 
-    const problem = await ProblemModel.findProblemById(id);
+    const problem = await ProblemModel.findProblemById(parsedId);
     if (!problem) {
       return res.status(404).json({
         status: 'error',
@@ -405,6 +439,15 @@ const previewProblem = async (req, res, next) => {
     }
 
     if (!canManageResource(req.user, problem.createdBy)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'PROBLEM_PREVIEW' },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -441,9 +484,18 @@ const previewProblem = async (req, res, next) => {
 const cloneProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
+
     const { title, accessScope } = req.body;
 
-    const existingProblem = await ProblemModel.findProblemById(id);
+    const existingProblem = await ProblemModel.findProblemById(parsedId);
     if (!existingProblem) {
       return res.status(404).json({
         status: 'error',
@@ -495,8 +547,16 @@ const cloneProblem = async (req, res, next) => {
 const getProblemVersions = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
 
-    const existingProblem = await ProblemModel.findProblemById(id);
+    const existingProblem = await ProblemModel.findProblemById(parsedId);
     if (!existingProblem) {
       return res.status(404).json({
         status: 'error',
@@ -506,6 +566,15 @@ const getProblemVersions = async (req, res, next) => {
     }
 
     if (!canManageResource(req.user, existingProblem.createdBy)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'PROBLEM_VERSIONS_VIEW' },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -531,8 +600,26 @@ const getProblemVersions = async (req, res, next) => {
 const getProblemVersionDetail = async (req, res, next) => {
   try {
     const { id, versionNumber } = req.params;
+    const parsedId = parseInt(id, 10);
+    const parsedVersion = parseInt(versionNumber, 10);
 
-    const existingProblem = await ProblemModel.findProblemById(id);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
+
+    if (isNaN(parsedVersion) || parsedVersion <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid version number format',
+      });
+    }
+
+    const existingProblem = await ProblemModel.findProblemById(parsedId);
     if (!existingProblem) {
       return res.status(404).json({
         status: 'error',
@@ -542,6 +629,15 @@ const getProblemVersionDetail = async (req, res, next) => {
     }
 
     if (!canManageResource(req.user, existingProblem.createdBy)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'PROBLEM_VERSION_DETAIL_VIEW', versionNumber: parsedVersion },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -573,8 +669,16 @@ const getProblemVersionDetail = async (req, res, next) => {
 const deleteProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
 
-    const existingProblem = await ProblemModel.findProblemById(id);
+    const existingProblem = await ProblemModel.findProblemById(parsedId);
     if (!existingProblem) {
       return res.status(404).json({
         status: 'error',

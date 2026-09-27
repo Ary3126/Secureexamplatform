@@ -279,15 +279,15 @@ class ProblemModel {
 
     // 0. Visibility Scoping (HackerRank-Style Public vs Contest-Private)
     if (!userRole || userRole === 'student') {
-      // Normal students & unauthenticated visitors strictly see public platform problems
-      conditions.push(`p.access_scope = 'public'`);
+      // Normal students & unauthenticated visitors strictly see published public platform problems
+      conditions.push(`p.access_scope = 'public' AND p.is_published = true`);
     } else if (userRole === 'professor') {
-      // Professors see public problems plus problems they created
+      // Professors see published public problems plus problems they created
       if (userId) {
         values.push(userId);
-        conditions.push(`(p.access_scope = 'public' OR p.created_by = $${values.length})`);
+        conditions.push(`((p.access_scope = 'public' AND p.is_published = true) OR p.created_by = $${values.length})`);
       } else {
-        conditions.push(`p.access_scope = 'public'`);
+        conditions.push(`p.access_scope = 'public' AND p.is_published = true`);
       }
     } else if (userRole === 'super_admin' || userRole === 'contest_admin') {
       // Platform Admins can see all, or filter by requested scope if provided
@@ -453,13 +453,13 @@ class ProblemModel {
 
     // 0. Visibility Scoping (HackerRank-Style Public vs Contest-Private)
     if (!userRole || userRole === 'student') {
-      conditions.push(`p.access_scope = 'public'`);
+      conditions.push(`p.access_scope = 'public' AND p.is_published = true`);
     } else if (userRole === 'professor') {
       if (userId) {
         values.push(userId);
-        conditions.push(`(p.access_scope = 'public' OR p.created_by = $${values.length})`);
+        conditions.push(`((p.access_scope = 'public' AND p.is_published = true) OR p.created_by = $${values.length})`);
       } else {
-        conditions.push(`p.access_scope = 'public'`);
+        conditions.push(`p.access_scope = 'public' AND p.is_published = true`);
       }
     } else if (userRole === 'super_admin' || userRole === 'contest_admin') {
       if (accessScope && accessScope.toLowerCase() !== 'all') {
@@ -754,6 +754,14 @@ class ProblemModel {
       }
 
       if (problem.coding_mode === 'function') {
+        const fnConfig = problem.function_config || {};
+        if (!fnConfig.functionName || !String(fnConfig.functionName).trim()) {
+          validationErrors.push('Function-mode problems must configure a valid function name');
+        }
+        if (!fnConfig.returnType || !String(fnConfig.returnType).trim()) {
+          validationErrors.push('Function-mode problems must configure a return type');
+        }
+
         const starters = problem.starter_templates || {};
         const harnesses = problem.harness_templates || {};
         const supportedLangs = ['python', 'cpp', 'java', 'javascript'];

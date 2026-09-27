@@ -4,6 +4,10 @@ const testCaseController = require('../controllers/testCaseController');
 const { authenticate } = require('../middleware/authMiddleware');
 const { authorizeRoles } = require('../middleware/roleMiddleware');
 const { validateCreateTestCase, validateUpdateTestCase } = require('../middleware/submissionValidation');
+const { mediumProtectionRateLimiter } = require('../middleware/rateLimitMiddleware');
+
+// Medium protection rate limiter for test-case endpoints
+router.use(mediumProtectionRateLimiter);
 
 router.use('/problems/:problemId/test-cases', authenticate);
 router.use('/problems/:problemId/testcases', authenticate);

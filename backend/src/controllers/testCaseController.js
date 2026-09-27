@@ -97,6 +97,15 @@ const getTestCases = async (req, res, next) => {
     }
 
     if (!canManageResource(req.user, problem)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: parsedProblemId,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'TEST_CASES_VIEW' },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -140,8 +149,29 @@ const getTestCaseById = async (req, res, next) => {
       });
     }
 
+    // Cross-resource verification: Ensure test case belongs to problem if problemId is in route
+    if (req.params.problemId) {
+      const routeProbId = parseInt(req.params.problemId, 10);
+      if (isNaN(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
+        return res.status(404).json({
+          status: 'error',
+          statusCode: 404,
+          message: `Test case with ID ${id} does not belong to problem ${req.params.problemId}`,
+        });
+      }
+    }
+
     const problem = await ProblemModel.findProblemById(testCase.problemId);
     if (!canManageResource(req.user, problem)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'test_case',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'TEST_CASE_VIEW' },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -180,6 +210,18 @@ const updateTestCase = async (req, res, next) => {
         statusCode: 404,
         message: `Test case with ID ${id} not found`,
       });
+    }
+
+    // Cross-resource verification: Ensure test case belongs to problem if problemId is in route
+    if (req.params.problemId) {
+      const routeProbId = parseInt(req.params.problemId, 10);
+      if (isNaN(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
+        return res.status(404).json({
+          status: 'error',
+          statusCode: 404,
+          message: `Test case with ID ${id} does not belong to problem ${req.params.problemId}`,
+        });
+      }
     }
 
     const problem = await ProblemModel.findProblemById(testCase.problemId);
@@ -242,6 +284,18 @@ const deleteTestCase = async (req, res, next) => {
         statusCode: 404,
         message: `Test case with ID ${id} not found`,
       });
+    }
+
+    // Cross-resource verification: Ensure test case belongs to problem if problemId is in route
+    if (req.params.problemId) {
+      const routeProbId = parseInt(req.params.problemId, 10);
+      if (isNaN(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
+        return res.status(404).json({
+          status: 'error',
+          statusCode: 404,
+          message: `Test case with ID ${id} does not belong to problem ${req.params.problemId}`,
+        });
+      }
     }
 
     const problem = await ProblemModel.findProblemById(testCase.problemId);
