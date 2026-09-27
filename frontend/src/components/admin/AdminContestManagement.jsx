@@ -13,230 +13,806 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  Filter,
+  RotateCcw,
+  Plus,
+  Shield,
+  BarChart3,
+  X,
+  ExternalLink,
+  Flame,
+  Award,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
+import './adminContestManagement.css';
 
 /**
- * Admin Platform-Wide Contest Administration View
- * Oversees all platform contests, host professors, participation metrics, and exam schedules.
+ * Helper to compute human-readable duration between start and end times
+ */
+function formatDuration(startTime, endTime) {
+  if (!startTime || !endTime) return 'N/A';
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  if (isNaN(start) || isNaN(end) || end <= start) return 'N/A';
+
+  const totalMinutes = Math.round((end - start) / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+
+  return parts.join(' ');
+}
+
+/**
+ * Format date for high readability in localized format
+ */
+function formatDateTime(dateStr) {
+  if (!dateStr) return 'N/A';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * Admin Contest Management — Master Discovery & Administration View (Phase 7.5.2)
+ * Connects to the authoritative backend contest infrastructure with server-side search,
+ * filters, sorting, pagination, and inspection.
  */
 export default function AdminContestManagement({
   contests = [],
+  totalContests = 0,
+  page = 1,
+  limit = 10,
+  search = '',
+  statusFilter = 'all',
+  stateFilter = 'all',
+  ratedFilter = 'all',
+  myContestsOnly = false,
+  sortBy = 'startTime',
+  sortOrder = 'DESC',
   loading = false,
+  isProcessing = false,
+  error = null,
+  currentUser = null,
+  inspectedContest = null,
+  inspectLoading = false,
+  onSearchChange,
+  onStatusFilterChange,
+  onStateFilterChange,
+  onRatedFilterChange,
+  onMyContestsChange,
+  onSortByChange,
+  onSortOrderChange,
+  onPageChange,
+  onLimitChange,
+  onResetFilters,
   onInspectContest,
+  onCloseInspect,
   onPublishContest,
   onArchiveContest,
-  isProcessing = false,
+  onRetry,
 }) {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const totalPages = Math.max(Math.ceil(totalContests / limit) || 1, 1);
 
-  const filteredContests = contests.filter((c) => {
-    if (statusFilter !== 'all' && (c.status || 'draft').toLowerCase() !== statusFilter) {
-      return false;
-    }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      const matchTitle = (c.title || '').toLowerCase().includes(q);
-      const matchDesc = (c.description || '').toLowerCase().includes(q);
-      const matchId = String(c.id).includes(q);
-      if (!matchTitle && !matchDesc && !matchId) return false;
-    }
-    return true;
-  });
+  // Quick Metrics (computed from currently loaded page or total indicators)
+  const runningCount = contests.filter((c) => (c.runtimeState || '').toLowerCase() === 'running').length;
+  const upcomingCount = contests.filter((c) => (c.runtimeState || '').toLowerCase() === 'upcoming').length;
+  const totalParticipantsAcrossPage = contests.reduce((acc, c) => acc + (c.participantCount || 0), 0);
 
-  const getStatusBadge = (status) => {
-    const st = (status || 'draft').toLowerCase();
-    const map = {
-      published: { label: 'Published / Active', bg: 'rgba(34, 197, 94, 0.15)', color: '#4ade80' },
-      draft: { label: 'Draft', bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8' },
-      archived: { label: 'Archived', bg: 'rgba(239, 68, 68, 0.15)', color: '#f87171' },
-      running: { label: 'Running Now', bg: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' },
-    };
-    const s = map[st] || map.draft;
-    return (
-      <span
-        style={{
-          fontSize: '0.72rem',
-          fontWeight: '700',
-          textTransform: 'uppercase',
-          padding: '2px 8px',
-          borderRadius: '4px',
-          background: s.bg,
-          color: s.color,
-        }}
-      >
-        {s.label}
-      </span>
-    );
+  const getRuntimeBadge = (state) => {
+    const s = (state || 'draft').toLowerCase();
+    switch (s) {
+      case 'running':
+        return (
+          <span className="badge-runtime-state badge-state-running">
+            <span className="pulse-dot" /> Running Now
+          </span>
+        );
+      case 'upcoming':
+        return (
+          <span className="badge-runtime-state badge-state-upcoming">
+            <Clock size={11} /> Upcoming
+          </span>
+        );
+      case 'ended':
+        return (
+          <span className="badge-runtime-state badge-state-ended">
+            <CheckCircle2 size={11} /> Ended
+          </span>
+        );
+      case 'draft':
+        return (
+          <span className="badge-runtime-state badge-state-draft">
+            Draft
+          </span>
+        );
+      case 'archived':
+        return (
+          <span className="badge-runtime-state badge-state-archived">
+            <Archive size={11} /> Archived
+          </span>
+        );
+      default:
+        return (
+          <span className="badge-runtime-state badge-state-draft">
+            {state}
+          </span>
+        );
+    }
   };
 
+  const hasActiveFilters =
+    Boolean(search) ||
+    statusFilter !== 'all' ||
+    stateFilter !== 'all' ||
+    ratedFilter !== 'all' ||
+    myContestsOnly ||
+    sortBy !== 'startTime' ||
+    sortOrder !== 'DESC';
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '32px' }}>
-      {/* 1. Header */}
-      <div>
-        <h2 style={{ margin: '0 0 4px 0', fontSize: '1.35rem', color: '#f8fafc', fontWeight: '800' }}>
-          Platform Contest Administration
-        </h2>
-        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-          Inspect all exams and contests created across the institution.
-        </span>
+    <div className="admin-contests-container">
+      {/* 1. Header Area */}
+      <div className="admin-contests-header">
+        <div className="admin-contests-title-wrap">
+          <h2>Contest & Examination Administration</h2>
+          <span className="admin-contests-subtitle">
+            Oversee, discover, and inspect all competitive programming contests and examinations across the institution.
+          </span>
+        </div>
+
+        <button
+          onClick={() => {
+            alert('Contest creation workflow will be activated in Phase 7.5.3 (Create Contest Workflow).');
+          }}
+          style={{
+            background: '#38bdf8',
+            color: '#0f172a',
+            border: 'none',
+            borderRadius: '6px',
+            padding: '8px 16px',
+            fontWeight: '700',
+            fontSize: '0.85rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 4px 12px rgba(56, 189, 248, 0.25)',
+          }}
+          title="Create Contest (Phase 7.5.3)"
+        >
+          <Plus size={16} /> New Contest
+        </button>
       </div>
 
-      {/* 2. Filter Bar */}
-      <div
-        style={{
-          background: 'rgba(15, 23, 42, 0.7)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '10px',
-          padding: '14px 18px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}
-      >
-        <div style={{ position: 'relative', flex: '1 1 260px' }}>
+      {/* 2. Quick Metrics Row */}
+      <div className="admin-contests-metrics-grid">
+        <div className="contest-metric-card">
+          <div className="metric-icon-wrap" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+            <Trophy size={20} />
+          </div>
+          <div>
+            <div className="metric-value">{totalContests}</div>
+            <div className="metric-label">Total Contests</div>
+          </div>
+        </div>
+
+        <div className="contest-metric-card">
+          <div className="metric-icon-wrap" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#34d399' }}>
+            <Flame size={20} />
+          </div>
+          <div>
+            <div className="metric-value">{runningCount}</div>
+            <div className="metric-label">Running on Page</div>
+          </div>
+        </div>
+
+        <div className="contest-metric-card">
+          <div className="metric-icon-wrap" style={{ background: 'rgba(167, 139, 250, 0.15)', color: '#c084fc' }}>
+            <Calendar size={20} />
+          </div>
+          <div>
+            <div className="metric-value">{upcomingCount}</div>
+            <div className="metric-label">Upcoming on Page</div>
+          </div>
+        </div>
+
+        <div className="contest-metric-card">
+          <div className="metric-icon-wrap" style={{ background: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24' }}>
+            <Users size={20} />
+          </div>
+          <div>
+            <div className="metric-value">{totalParticipantsAcrossPage}</div>
+            <div className="metric-label">Enrolled on Page</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Runtime State Tabs */}
+      <div className="admin-contests-tabs">
+        <button
+          className={`contest-tab-btn ${stateFilter === 'all' && statusFilter !== 'draft' && statusFilter !== 'archived' ? 'active' : ''}`}
+          onClick={() => {
+            onStateFilterChange && onStateFilterChange('all');
+            onStatusFilterChange && onStatusFilterChange('all');
+          }}
+        >
+          All Active
+        </button>
+        <button
+          className={`contest-tab-btn ${stateFilter === 'running' ? 'active' : ''}`}
+          onClick={() => {
+            onStateFilterChange && onStateFilterChange('running');
+            onStatusFilterChange && onStatusFilterChange('all');
+          }}
+        >
+          <span className="pulse-dot" /> Live Running
+        </button>
+        <button
+          className={`contest-tab-btn ${stateFilter === 'upcoming' ? 'active' : ''}`}
+          onClick={() => {
+            onStateFilterChange && onStateFilterChange('upcoming');
+            onStatusFilterChange && onStatusFilterChange('all');
+          }}
+        >
+          Upcoming
+        </button>
+        <button
+          className={`contest-tab-btn ${stateFilter === 'ended' ? 'active' : ''}`}
+          onClick={() => {
+            onStateFilterChange && onStateFilterChange('ended');
+            onStatusFilterChange && onStatusFilterChange('all');
+          }}
+        >
+          Ended
+        </button>
+        <button
+          className={`contest-tab-btn ${statusFilter === 'draft' || stateFilter === 'draft' ? 'active' : ''}`}
+          onClick={() => {
+            onStatusFilterChange && onStatusFilterChange('draft');
+            onStateFilterChange && onStateFilterChange('all');
+          }}
+        >
+          Drafts
+        </button>
+        <button
+          className={`contest-tab-btn ${statusFilter === 'archived' || stateFilter === 'archived' ? 'active' : ''}`}
+          onClick={() => {
+            onStatusFilterChange && onStatusFilterChange('archived');
+            onStateFilterChange && onStateFilterChange('all');
+          }}
+        >
+          Archived
+        </button>
+      </div>
+
+      {/* 4. Filter & Search Toolbar */}
+      <div className="admin-contests-toolbar">
+        <div className="contests-search-wrap">
           <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
           <input
             type="text"
-            placeholder="Search contests by title, ID, or description..."
+            className="contests-search-input"
+            placeholder="Search by title, description, ID, or host..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px 8px 36px',
-              background: '#1e293b',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              borderRadius: '6px',
-              color: '#f8fafc',
-              fontSize: '0.85rem',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
+            onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
           />
+          {search && (
+            <button className="search-clear-btn" onClick={() => onSearchChange && onSearchChange('')} title="Clear search">
+              <X size={14} />
+            </button>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Status:</span>
+        <div className="contests-filters-row">
+          {/* Status Dropdown */}
           <select
+            className="contests-filter-select"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{
-              padding: '7px 12px',
-              background: '#1e293b',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              borderRadius: '6px',
-              color: '#f8fafc',
-              fontSize: '0.82rem',
-              outline: 'none',
-            }}
+            onChange={(e) => onStatusFilterChange && onStatusFilterChange(e.target.value)}
+            title="Filter by status"
           >
-            <option value="all">All Statuses</option>
-            <option value="published">Published / Active</option>
+            <option value="all">Status: All</option>
+            <option value="published">Published</option>
             <option value="draft">Draft Only</option>
             <option value="archived">Archived</option>
           </select>
+
+          {/* Rating Dropdown */}
+          <select
+            className="contests-filter-select"
+            value={ratedFilter}
+            onChange={(e) => onRatedFilterChange && onRatedFilterChange(e.target.value)}
+            title="Filter by rated status"
+          >
+            <option value="all">Scoring: All</option>
+            <option value="rated">Rated Only (Elo)</option>
+            <option value="unrated">Unrated Only</option>
+          </select>
+
+          {/* Ownership Toggle (for professors/admins) */}
+          {currentUser && (
+            <button
+              onClick={() => onMyContestsChange && onMyContestsChange(!myContestsOnly)}
+              style={{
+                background: myContestsOnly ? 'rgba(56, 189, 248, 0.15)' : '#1e293b',
+                border: myContestsOnly ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid rgba(255, 255, 255, 0.15)',
+                color: myContestsOnly ? '#38bdf8' : '#cbd5e1',
+                padding: '7px 12px',
+                borderRadius: '6px',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                fontWeight: myContestsOnly ? '700' : '500',
+              }}
+              title="Show only contests created by you"
+            >
+              My Contests
+            </button>
+          )}
+
+          {/* Sort By Dropdown */}
+          <select
+            className="contests-filter-select"
+            value={sortBy}
+            onChange={(e) => onSortByChange && onSortByChange(e.target.value)}
+            title="Sort contests by"
+          >
+            <option value="startTime">Sort: Start Time</option>
+            <option value="title">Sort: Contest Title</option>
+            <option value="createdAt">Sort: Created Date</option>
+            <option value="id">Sort: Contest ID</option>
+          </select>
+
+          {/* Sort Direction Toggle */}
+          <button
+            onClick={() => onSortOrderChange && onSortOrderChange(sortOrder === 'ASC' ? 'DESC' : 'ASC')}
+            className="btn-reset-filters"
+            title="Toggle sort direction"
+          >
+            {sortOrder === 'ASC' ? 'Ascending ↑' : 'Descending ↓'}
+          </button>
+
+          {/* Reset Filters */}
+          {hasActiveFilters && (
+            <button className="btn-reset-filters" onClick={onResetFilters} title="Reset all search and filter parameters">
+              <RotateCcw size={13} /> Reset
+            </button>
+          )}
         </div>
       </div>
 
-      {/* 3. Contests Table */}
-      <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '20px' }}>
+      {/* 5. Error Banner */}
+      {error && (
+        <div className="contests-error-banner">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={18} />
+            <span>{error}</span>
+          </div>
+          {onRetry && (
+            <button onClick={onRetry} className="btn-table-action" style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#fff' }}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 6. Main Contests Table */}
+      <div className="contests-table-wrap">
         {loading ? (
-          <AuthoringLoadingState message="Loading platform contests..." />
-        ) : filteredContests.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontSize: '0.9rem' }}>
-            No platform contests found matching your criteria.
+          <AuthoringLoadingState message="Fetching contest directory from server..." />
+        ) : contests.length === 0 ? (
+          <div className="contests-empty-state">
+            <Trophy size={42} style={{ color: '#64748b', opacity: 0.6 }} />
+            <h3 className="empty-state-title">No contests found</h3>
+            <p className="empty-state-desc">
+              No contests match your current search or filter parameters. Try adjusting your search term or resetting the filters.
+            </p>
+            {hasActiveFilters && (
+              <button className="btn-reset-filters" onClick={onResetFilters} style={{ marginTop: '8px' }}>
+                <RotateCcw size={13} /> Clear All Filters
+              </button>
+            )}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+            <table className="contests-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)', color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '12px 14px' }}>Contest Name</th>
-                  <th style={{ padding: '12px 14px' }}>Host Professor</th>
-                  <th style={{ padding: '12px 14px' }}>Status</th>
-                  <th style={{ padding: '12px 14px' }}>Problems</th>
-                  <th style={{ padding: '12px 14px' }}>Enrolled</th>
-                  <th style={{ padding: '12px 14px' }}>Timeline</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>Actions</th>
+                <tr>
+                  <th style={{ width: '28%' }}>Contest</th>
+                  <th style={{ width: '14%' }}>Host</th>
+                  <th style={{ width: '12%' }}>Timeline</th>
+                  <th style={{ width: '9%' }}>Duration</th>
+                  <th style={{ width: '11%' }}>Runtime State</th>
+                  <th style={{ width: '8%', textAlign: 'center' }}>Problems</th>
+                  <th style={{ width: '8%', textAlign: 'center' }}>Enrolled</th>
+                  <th style={{ width: '10%' }}>Scoring</th>
+                  <th style={{ width: '14%', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredContests.map((c) => (
-                  <tr key={c.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
-                    <td style={{ padding: '14px' }}>
-                      <span style={{ fontWeight: '700', color: '#f8fafc', display: 'block' }}>{c.title}</span>
-                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>ID: #{c.id}</span>
-                    </td>
-                    <td style={{ padding: '14px', color: '#cbd5e1' }}>
-                      {c.creatorName || (c.created_by ? `Professor #${c.created_by}` : 'System Admin')}
-                    </td>
-                    <td style={{ padding: '14px' }}>
-                      {getStatusBadge(c.status)}
-                    </td>
-                    <td style={{ padding: '14px', color: '#38bdf8', fontWeight: '700' }}>
-                      {c.problemsCount || c.problems_count || c.problems?.length || 0}
-                    </td>
-                    <td style={{ padding: '14px', color: '#4ade80', fontWeight: '700' }}>
-                      {c.participantsCount || c.participants_count || 0}
-                    </td>
-                    <td style={{ padding: '14px', color: '#94a3b8', fontSize: '0.78rem' }}>
-                      <div>Start: {c.startTime || c.start_time ? new Date(c.startTime || c.start_time).toLocaleDateString() : 'N/A'}</div>
-                      <div>End: {c.endTime || c.end_time ? new Date(c.endTime || c.end_time).toLocaleDateString() : 'N/A'}</div>
-                    </td>
-                    <td style={{ padding: '14px', textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: '6px' }}>
-                        <button
-                          onClick={() => onInspectContest && onInspectContest(c.id)}
-                          style={{
-                            background: 'rgba(56, 189, 248, 0.1)',
-                            border: '1px solid rgba(56, 189, 248, 0.3)',
-                            color: '#38bdf8',
-                            borderRadius: '4px',
-                            padding: '4px 10px',
-                            fontSize: '0.75rem',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                        >
-                          <Eye size={13} /> Results
-                        </button>
+                {contests.map((c) => {
+                  const isOwner = currentUser && c.createdBy === currentUser.id;
+                  const durationStr = formatDuration(c.startTime, c.endTime);
 
-                        {(c.status === 'draft') && onPublishContest && (
-                          <button
-                            onClick={() => onPublishContest(c.id)}
-                            disabled={isProcessing}
+                  return (
+                    <tr key={c.id}>
+                      {/* Contest Column */}
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontWeight: '700', color: '#f8fafc' }}>{c.title}</span>
+                          <span style={{ fontSize: '0.72rem', color: '#64748b' }}>#{c.id}</span>
+                        </div>
+                        {c.description && (
+                          <div
                             style={{
-                              background: 'rgba(34, 197, 94, 0.15)',
-                              border: '1px solid rgba(34, 197, 94, 0.3)',
-                              color: '#4ade80',
-                              borderRadius: '4px',
-                              padding: '4px 10px',
-                              fontSize: '0.75rem',
-                              fontWeight: '700',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
+                              fontSize: '0.78rem',
+                              color: '#94a3b8',
+                              marginTop: '2px',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: '300px',
                             }}
                           >
-                            <Globe size={13} /> Publish
-                          </button>
+                            {c.description}
+                          </div>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+
+                      {/* Host / Owner Column */}
+                      <td>
+                        <span style={{ color: '#cbd5e1', fontSize: '0.82rem' }}>
+                          {c.creatorUsername || `Professor #${c.createdBy}`}
+                        </span>
+                        {isOwner && <span className="badge-owner-you">You</span>}
+                      </td>
+
+                      {/* Timeline Column */}
+                      <td style={{ fontSize: '0.76rem', color: '#94a3b8' }}>
+                        <div>Start: {formatDateTime(c.startTime)}</div>
+                        <div>End: {formatDateTime(c.endTime)}</div>
+                      </td>
+
+                      {/* Duration Column */}
+                      <td style={{ fontSize: '0.82rem', color: '#cbd5e1', fontWeight: '600' }}>
+                        {durationStr}
+                      </td>
+
+                      {/* Runtime State Column */}
+                      <td>{getRuntimeBadge(c.runtimeState || c.status)}</td>
+
+                      {/* Problems Column */}
+                      <td style={{ textAlign: 'center' }}>
+                        <span
+                          style={{
+                            fontSize: '0.82rem',
+                            fontWeight: '700',
+                            color: '#38bdf8',
+                            background: 'rgba(56, 189, 248, 0.1)',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                          }}
+                        >
+                          {c.problemCount || 0}
+                        </span>
+                      </td>
+
+                      {/* Participants Column */}
+                      <td style={{ textAlign: 'center' }}>
+                        <span
+                          style={{
+                            fontSize: '0.82rem',
+                            fontWeight: '700',
+                            color: '#4ade80',
+                            background: 'rgba(34, 197, 94, 0.1)',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                          }}
+                        >
+                          {c.participantCount || 0}
+                        </span>
+                      </td>
+
+                      {/* Scoring Column */}
+                      <td>
+                        {c.isRated ? (
+                          <span className="badge-rated">
+                            <Trophy size={11} /> Rated
+                          </span>
+                        ) : (
+                          <span className="badge-unrated">Unrated</span>
+                        )}
+                        {c.leaderboardFreezeEnabled && (
+                          <div style={{ fontSize: '0.68rem', color: '#a78bfa', marginTop: '3px' }}>
+                            Freeze: {c.leaderboardFreezeMinutes || 60}m
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Actions Column */}
+                      <td style={{ textAlign: 'right' }}>
+                        <div className="action-buttons-group">
+                          {/* Inspect / View Details Button */}
+                          <button
+                            onClick={() => onInspectContest && onInspectContest(c.id)}
+                            className="btn-table-action btn-action-inspect"
+                            title="Inspect contest details"
+                          >
+                            <Eye size={13} /> Inspect
+                          </button>
+
+                          {/* Leaderboard Link Button */}
+                          <a
+                            href={`/contests/${c.id}/leaderboard`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-table-action btn-action-leaderboard"
+                            style={{ textDecoration: 'none' }}
+                            title="Open contest standings leaderboard"
+                          >
+                            <BarChart3 size={13} />
+                          </a>
+
+                          {/* Publish Action (for Drafts) */}
+                          {c.status === 'draft' && onPublishContest && (
+                            <button
+                              onClick={() => onPublishContest(c.id)}
+                              disabled={isProcessing}
+                              className="btn-table-action btn-action-publish"
+                              title="Publish this contest"
+                            >
+                              <Globe size={13} /> Publish
+                            </button>
+                          )}
+
+                          {/* Archive Action (for published/ended contests) */}
+                          {c.status === 'published' && onArchiveContest && (
+                            <button
+                              onClick={() => onArchiveContest(c.id)}
+                              disabled={isProcessing}
+                              className="btn-table-action btn-action-archive"
+                              title="Archive contest"
+                            >
+                              <Archive size={13} /> Archive
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+
+        {/* 7. Pagination Bar */}
+        {!loading && totalContests > 0 && (
+          <div className="contests-pagination-bar">
+            <div className="pagination-info">
+              Showing page <strong>{page}</strong> of <strong>{totalPages}</strong> ({totalContests} total contests)
+            </div>
+
+            <div className="pagination-controls">
+              <span style={{ fontSize: '0.8rem', color: '#94a3b8', marginRight: '4px' }}>Per Page:</span>
+              <select
+                className="contests-filter-select"
+                style={{ padding: '4px 8px', fontSize: '0.78rem' }}
+                value={limit}
+                onChange={(e) => onLimitChange && onLimitChange(parseInt(e.target.value, 10))}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+
+              <button
+                className="pagination-btn"
+                disabled={page <= 1}
+                onClick={() => onPageChange && onPageChange(page - 1)}
+                title="Previous page"
+              >
+                <ChevronLeft size={14} /> Prev
+              </button>
+
+              <span className="pagination-page-indicator">
+                {page} / {totalPages}
+              </span>
+
+              <button
+                className="pagination-btn"
+                disabled={page >= totalPages}
+                onClick={() => onPageChange && onPageChange(page + 1)}
+                title="Next page"
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* 8. Contest Inspection Drawer / Modal */}
+      {inspectedContest && (
+        <div className="contest-inspect-backdrop" onClick={onCloseInspect}>
+          <div className="contest-inspect-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="inspect-header">
+              <div className="inspect-title-area">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h3>{inspectedContest.title}</h3>
+                  <span style={{ fontSize: '0.8rem', color: '#64748b' }}>#{inspectedContest.id}</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                  {getRuntimeBadge(inspectedContest.runtimeState || inspectedContest.status)}
+                  {inspectedContest.isRated ? (
+                    <span className="badge-rated"><Trophy size={11} /> Rated</span>
+                  ) : (
+                    <span className="badge-unrated">Unrated</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={onCloseInspect}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+                title="Close inspection"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="inspect-body">
+              {inspectLoading ? (
+                <AuthoringLoadingState message="Loading contest details..." />
+              ) : (
+                <>
+                  {/* Overview Cards */}
+                  <div>
+                    <div className="inspect-section-title">Timeline & Schedule</div>
+                    <div className="inspect-grid-2">
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Start Time</div>
+                        <div className="inspect-field-val">{formatDateTime(inspectedContest.startTime)}</div>
+                      </div>
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">End Time</div>
+                        <div className="inspect-field-val">{formatDateTime(inspectedContest.endTime)}</div>
+                      </div>
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Duration</div>
+                        <div className="inspect-field-val">{formatDuration(inspectedContest.startTime, inspectedContest.endTime)}</div>
+                      </div>
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Host Creator</div>
+                        <div className="inspect-field-val">{inspectedContest.creatorUsername || `User #${inspectedContest.createdBy}`}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Configuration & Rules */}
+                  <div>
+                    <div className="inspect-section-title">Configuration & Rules</div>
+                    <div className="inspect-grid-2">
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Leaderboard Freeze</div>
+                        <div className="inspect-field-val">
+                          {inspectedContest.leaderboardFreezeEnabled ? `Enabled (${inspectedContest.leaderboardFreezeMinutes || 60} mins before end)` : 'Disabled (Live all time)'}
+                        </div>
+                      </div>
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Rating Status</div>
+                        <div className="inspect-field-val">
+                          {inspectedContest.isRatingFinalized ? 'Ratings Finalized' : 'Pending Finalization'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  {inspectedContest.description && (
+                    <div>
+                      <div className="inspect-section-title">Description</div>
+                      <div
+                        style={{
+                          background: 'rgba(30, 41, 59, 0.5)',
+                          border: '1px solid rgba(255, 255, 255, 0.06)',
+                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          fontSize: '0.85rem',
+                          color: '#cbd5e1',
+                          lineHeight: '1.5',
+                        }}
+                      >
+                        {inspectedContest.description}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Attached Problems List */}
+                  <div>
+                    <div className="inspect-section-title">
+                      Attached Problems ({inspectedContest.problems?.length || 0})
+                    </div>
+                    {(!inspectedContest.problems || inspectedContest.problems.length === 0) ? (
+                      <div style={{ color: '#64748b', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                        No problems attached to this contest yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {inspectedContest.problems.map((p, idx) => (
+                          <div
+                            key={p.problemId || p.id}
+                            style={{
+                              background: 'rgba(30, 41, 59, 0.6)',
+                              border: '1px solid rgba(255, 255, 255, 0.06)',
+                              borderRadius: '8px',
+                              padding: '10px 14px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: '700', color: '#f8fafc', marginRight: '8px' }}>
+                                #{p.problemOrder || idx + 1}. {p.title}
+                              </span>
+                              <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'capitalize' }}>
+                                ({p.difficulty || 'medium'}, {p.codingMode || 'full_program'})
+                              </span>
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '0.8rem',
+                                fontWeight: '700',
+                                color: '#38bdf8',
+                                background: 'rgba(56, 189, 248, 0.1)',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                              }}
+                            >
+                              {p.points || 100} pts
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="inspect-footer">
+              <a
+                href={`/contests/${inspectedContest.id}/leaderboard`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-table-action btn-action-leaderboard"
+                style={{ textDecoration: 'none', padding: '6px 14px' }}
+              >
+                <BarChart3 size={14} /> Open Standings
+              </a>
+
+              <button
+                onClick={onCloseInspect}
+                className="pagination-btn"
+                style={{ padding: '6px 16px' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

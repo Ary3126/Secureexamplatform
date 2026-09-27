@@ -327,30 +327,95 @@ function ProblemsSection({ token, currentUser, onNavigateSubroute }) {
 }
 
 // ── Contests Section Container ─────────────────────────────────────────────
-function ContestsSection({ token }) {
+// ── Contests Section Container ─────────────────────────────────────────────
+function ContestsSection({ token, currentUser }) {
   const [contests, setContests] = useState([]);
+  const [totalContests, setTotalContests] = useState(0);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [stateFilter, setStateFilter] = useState('all');
+  const [ratedFilter, setRatedFilter] = useState('all');
+  const [myContestsOnly, setMyContestsOnly] = useState(false);
+  const [sortBy, setSortBy] = useState('startTime');
+  const [sortOrder, setSortOrder] = useState('DESC');
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Contest Inspection Modal state
+  const [inspectedContest, setInspectedContest] = useState(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
 
   const fetchContests = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      // /api/contests is publicly listed; super_admin token grants full visibility
-      const res = await fetch('/api/contests', {
+      const params = new URLSearchParams({
+        page,
+        limit,
+        sortBy,
+        sortOrder,
+      });
+
+      if (search && search.trim()) {
+        params.set('search', search.trim());
+      }
+      if (statusFilter && statusFilter !== 'all') {
+        params.set('status', statusFilter);
+      }
+      if (stateFilter && stateFilter !== 'all') {
+        params.set('state', stateFilter);
+      }
+      if (ratedFilter && ratedFilter !== 'all') {
+        params.set('isRated', ratedFilter === 'rated' ? 'true' : 'false');
+      }
+      if (myContestsOnly && currentUser?.id) {
+        params.set('createdBy', currentUser.id);
+      }
+
+      const res = await fetch(`/api/contests?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch contests (HTTP ${res.status})`);
+      }
+
+      const data = await res.json();
+      setContests(data.contests || []);
+      setTotalContests(data.total !== undefined ? data.total : (data.count || 0));
+    } catch (err) {
+      console.error('Failed to fetch contests:', err);
+      setError(err.message || 'Error loading contest directory');
+    } finally {
+      setLoading(false);
+    }
+  }, [token, page, limit, search, statusFilter, stateFilter, ratedFilter, myContestsOnly, sortBy, sortOrder, currentUser]);
+
+  useEffect(() => {
+    fetchContests();
+  }, [fetchContests]);
+
+  const handleInspectContest = async (contestId) => {
+    setInspectLoading(true);
+    try {
+      const res = await fetch(`/api/contests/${contestId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setContests(data.contests || data || []);
+        setInspectedContest(data);
+      } else {
+        console.error('Could not load contest details');
       }
     } catch (err) {
-      console.error('Failed to fetch contests:', err);
+      console.error('Inspect contest error:', err);
     } finally {
-      setLoading(false);
+      setInspectLoading(false);
     }
-  }, [token]);
-
-  useEffect(() => { fetchContests(); }, [fetchContests]);
+  };
 
   const handlePublishContest = async (contestId) => {
     setIsProcessing(true);
@@ -359,7 +424,15 @@ function ContestsSection({ token }) {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) fetchContests();
+      if (res.ok) {
+        fetchContests();
+        if (inspectedContest?.id === contestId) {
+          handleInspectContest(contestId);
+        }
+      } else {
+        const errData = await res.json();
+        alert(errData.message || 'Failed to publish contest');
+      }
     } catch (err) {
       console.error('Publish contest failed:', err);
     } finally {
@@ -370,13 +443,20 @@ function ContestsSection({ token }) {
   const handleArchiveContest = async (contestId) => {
     setIsProcessing(true);
     try {
-      // Use PATCH to update status to 'archived'
       const res = await fetch(`/api/contests/${contestId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: 'archived' }),
       });
-      if (res.ok) fetchContests();
+      if (res.ok) {
+        fetchContests();
+        if (inspectedContest?.id === contestId) {
+          handleInspectContest(contestId);
+        }
+      } else {
+        const errData = await res.json();
+        alert(errData.message || 'Failed to archive contest');
+      }
     } catch (err) {
       console.error('Archive contest failed:', err);
     } finally {
@@ -384,14 +464,51 @@ function ContestsSection({ token }) {
     }
   };
 
+  const handleResetFilters = () => {
+    setSearch('');
+    setStatusFilter('all');
+    setStateFilter('all');
+    setRatedFilter('all');
+    setMyContestsOnly(false);
+    setSortBy('startTime');
+    setSortOrder('DESC');
+    setPage(1);
+  };
+
   return (
     <AdminContestManagement
       contests={contests}
+      totalContests={totalContests}
+      page={page}
+      limit={limit}
+      search={search}
+      statusFilter={statusFilter}
+      stateFilter={stateFilter}
+      ratedFilter={ratedFilter}
+      myContestsOnly={myContestsOnly}
+      sortBy={sortBy}
+      sortOrder={sortOrder}
       loading={loading}
       isProcessing={isProcessing}
-      onInspectContest={(c) => console.log('Inspect contest', c)}
+      error={error}
+      currentUser={currentUser}
+      inspectedContest={inspectedContest}
+      inspectLoading={inspectLoading}
+      onSearchChange={(val) => { setSearch(val); setPage(1); }}
+      onStatusFilterChange={(val) => { setStatusFilter(val); setPage(1); }}
+      onStateFilterChange={(val) => { setStateFilter(val); setPage(1); }}
+      onRatedFilterChange={(val) => { setRatedFilter(val); setPage(1); }}
+      onMyContestsChange={(val) => { setMyContestsOnly(val); setPage(1); }}
+      onSortByChange={(val) => setSortBy(val)}
+      onSortOrderChange={(val) => setSortOrder(val)}
+      onPageChange={(p) => setPage(p)}
+      onLimitChange={(l) => { setLimit(l); setPage(1); }}
+      onResetFilters={handleResetFilters}
+      onInspectContest={handleInspectContest}
+      onCloseInspect={() => setInspectedContest(null)}
       onPublishContest={handlePublishContest}
       onArchiveContest={handleArchiveContest}
+      onRetry={fetchContests}
     />
   );
 }
@@ -557,7 +674,7 @@ export default function AdminPanel({
 
           {/* Contests & Exams — scheduling, publish/archive lifecycle */}
           {activeSection === 'contests' && (
-            <ContestsSection token={token} />
+            <ContestsSection token={token} currentUser={currentUser} />
           )}
 
           {/* Problem Reviews & SLA Oversight */}

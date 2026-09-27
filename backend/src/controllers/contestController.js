@@ -49,34 +49,40 @@ const createContest = async (req, res, next) => {
 };
 
 /**
- * List contests with optional filters (state = upcoming|running|ended)
+ * List contests with search, filters, sorting, and pagination
  * @route GET /api/contests
  */
 const getAllContests = async (req, res, next) => {
   try {
-    const { status, state, limit, offset } = req.query;
+    const { status, state, search, sortBy, sortOrder, isRated, createdBy, page, limit, offset } = req.query;
+
+    const parsedLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 100));
+    const parsedPage = page ? Math.max(1, parseInt(page, 10) || 1) : null;
+    const effectiveOffset = parsedPage ? (parsedPage - 1) * parsedLimit : Math.max(0, parseInt(offset, 10) || 0);
+    const effectivePage = parsedPage || Math.floor(effectiveOffset / parsedLimit) + 1;
 
     const contests = await ContestModel.findAllContests({
       status,
-      limit: Math.max(1, Math.min(parseInt(limit, 10) || 50, 100)),
-      offset: Math.max(0, parseInt(offset, 10) || 0),
+      state,
+      search,
+      sortBy,
+      sortOrder,
+      isRated,
+      createdBy,
+      user: req.user || null,
+      limit: parsedLimit,
+      offset: effectiveOffset,
     });
 
-    let formatted = contests.map(formatContest);
-
-    // Non-managers (students and unauthenticated guests) cannot see draft contests
-    const isManager = req.user && (req.user.role === 'professor' || req.user.role === 'contest_admin' || req.user.role === 'super_admin');
-    if (!isManager) {
-      formatted = formatted.filter((c) => c.status === 'published');
-    }
-
-    // Filter by server-computed runtimeState (upcoming | running | ended)
-    if (state) {
-      formatted = formatted.filter((c) => c.runtimeState === state.toLowerCase());
-    }
+    const formatted = contests.map(formatContest);
+    const totalCount = contests.totalCount !== undefined ? contests.totalCount : formatted.length;
 
     return res.status(200).json({
       count: formatted.length,
+      total: totalCount,
+      page: effectivePage,
+      limit: parsedLimit,
+      totalPages: Math.ceil(totalCount / parsedLimit),
       contests: formatted,
     });
   } catch (error) {

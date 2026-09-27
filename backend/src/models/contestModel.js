@@ -110,12 +110,102 @@ class ContestModel {
   }
 
   /**
-   * List all contests with optional status filter and pagination
-   * @param {Object} options - { status, limit, offset }
-   * @returns {Promise<Array<Object>>}
+   * List all contests with optional search, status, runtimeState, filters, sorting, and pagination
+   * @param {Object} options - { status, state, search, isRated, createdBy, user, sortBy, sortOrder, limit, offset }
+   * @returns {Promise<Array<Object>>} Array with .totalCount property attached
    */
-  static async findAllContests({ status, limit = 50, offset = 0 } = {}) {
-    let queryText = `
+  static async findAllContests({
+    status,
+    state,
+    search,
+    isRated,
+    createdBy,
+    user = null,
+    sortBy = 'startTime',
+    sortOrder = 'DESC',
+    limit = 50,
+    offset = 0,
+  } = {}) {
+    const whereClauses = [];
+    const values = [];
+
+    // 1. RBAC & Privacy filter
+    if (!user || user.role === 'student') {
+      whereClauses.push("c.status = 'published'");
+    } else if (user.role === 'professor') {
+      values.push(user.id);
+      whereClauses.push(`(c.status != 'draft' OR c.created_by = $${values.length})`);
+    }
+
+    // 2. Status filter
+    if (status && status !== 'all') {
+      values.push(status.toLowerCase());
+      whereClauses.push(`c.status = $${values.length}`);
+    }
+
+    // 3. Runtime state filter (server-authoritative timestamps)
+    if (state && state !== 'all') {
+      const s = state.toLowerCase();
+      if (s === 'upcoming') {
+        whereClauses.push("c.status = 'published' AND c.start_time > CURRENT_TIMESTAMP");
+      } else if (s === 'running') {
+        whereClauses.push("c.status = 'published' AND c.start_time <= CURRENT_TIMESTAMP AND c.end_time > CURRENT_TIMESTAMP");
+      } else if (s === 'ended') {
+        whereClauses.push("c.status = 'published' AND c.end_time <= CURRENT_TIMESTAMP");
+      } else if (s === 'draft') {
+        whereClauses.push("c.status = 'draft'");
+      } else if (s === 'archived') {
+        whereClauses.push("c.status = 'archived'");
+      }
+    }
+
+    // 4. Search query (title, description, ID, creator username)
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      const term = search.trim();
+      values.push(`%${term}%`);
+      const strIdx = values.length;
+      if (!isNaN(term) && Number.isInteger(parseFloat(term))) {
+        values.push(parseInt(term, 10));
+        whereClauses.push(`(c.id = $${values.length} OR c.title ILIKE $${strIdx} OR c.description ILIKE $${strIdx} OR u.username ILIKE $${strIdx})`);
+      } else {
+        whereClauses.push(`(c.title ILIKE $${strIdx} OR c.description ILIKE $${strIdx} OR u.username ILIKE $${strIdx})`);
+      }
+    }
+
+    // 5. isRated filter
+    if (isRated !== undefined && isRated !== null && isRated !== '' && isRated !== 'all') {
+      const ratedBool = isRated === true || isRated === 'true';
+      values.push(ratedBool);
+      whereClauses.push(`c.is_rated = $${values.length}`);
+    }
+
+    // 6. Creator ID filter
+    if (createdBy !== undefined && createdBy !== null && createdBy !== '' && !isNaN(parseInt(createdBy, 10))) {
+      values.push(parseInt(createdBy, 10));
+      whereClauses.push(`c.created_by = $${values.length}`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // 7. Whitelisted sorting
+    const sortColMap = {
+      startTime: 'c.start_time',
+      endTime: 'c.end_time',
+      createdAt: 'c.created_at',
+      title: 'c.title',
+      id: 'c.id',
+      problemCount: 'COUNT(DISTINCT cp.problem_id)',
+      participantCount: 'COUNT(DISTINCT part.user_id)',
+    };
+    const sortCol = sortColMap[sortBy] || 'c.start_time';
+    const sortDir = sortOrder && String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    values.push(limit);
+    const limitIdx = values.length;
+    values.push(offset);
+    const offsetIdx = values.length;
+
+    const queryText = `
       SELECT 
         c.id, 
         c.title, 
@@ -134,24 +224,38 @@ class ContestModel {
         c.created_at AS "createdAt", 
         c.updated_at AS "updatedAt",
         COUNT(DISTINCT cp.problem_id)::int AS "problemCount",
-        COUNT(DISTINCT part.user_id)::int AS "participantCount"
+        COUNT(DISTINCT part.user_id)::int AS "participantCount",
+        COUNT(*) OVER()::int AS "totalCount"
       FROM contests c
       LEFT JOIN users u ON c.created_by = u.id
       LEFT JOIN contest_problems cp ON c.id = cp.contest_id
       LEFT JOIN contest_participants part ON c.id = part.contest_id
+      ${whereSql}
+      GROUP BY c.id, u.username 
+      ORDER BY ${sortCol} ${sortDir} 
+      LIMIT $${limitIdx} OFFSET $${offsetIdx};
     `;
-    const values = [];
-
-    if (status) {
-      values.push(status.toLowerCase());
-      queryText += ` WHERE c.status = $${values.length}`;
-    }
-
-    queryText += ` GROUP BY c.id, u.username ORDER BY c.start_time DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
-    values.push(limit, offset);
 
     const res = await db.query(queryText, values);
-    return res.rows;
+    const rows = res.rows;
+
+    let totalCount = 0;
+    if (rows.length > 0) {
+      totalCount = rows[0].totalCount || 0;
+    } else if (offset > 0) {
+      const countQuery = `
+        SELECT COUNT(*)::int AS count
+        FROM contests c
+        LEFT JOIN users u ON c.created_by = u.id
+        ${whereSql};
+      `;
+      const countRes = await db.query(countQuery, values.slice(0, values.length - 2));
+      totalCount = countRes.rows[0]?.count || 0;
+    }
+
+    // Attach totalCount as a non-enumerable or direct property for array compatibility
+    rows.totalCount = totalCount;
+    return rows;
   }
 
   /**
