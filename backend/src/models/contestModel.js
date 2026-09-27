@@ -78,6 +78,25 @@ class ContestModel {
   }
 
   /**
+   * Find recent duplicate contest created by the same user to prevent rapid double-clicks
+   * @param {Object} params - { title, createdBy, withinSeconds }
+   * @returns {Promise<Object|null>}
+   */
+  static async findRecentDuplicate({ title, createdBy, withinSeconds = 3 }) {
+    if (!title || !createdBy) return null;
+    const text = `
+      SELECT id, title, created_at AS "createdAt"
+      FROM contests
+      WHERE created_by = $1
+        AND LOWER(TRIM(title)) = LOWER(TRIM($2))
+        AND created_at >= NOW() - ($3 || ' seconds')::interval
+      LIMIT 1;
+    `;
+    const res = await db.query(text, [createdBy, title, withinSeconds]);
+    return res.rows[0] || null;
+  }
+
+  /**
    * Find contest by ID
    * @param {number|string} id
    * @returns {Promise<Object|null>}

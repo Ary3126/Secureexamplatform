@@ -28,6 +28,21 @@ const createContest = async (req, res, next) => {
     } = req.body;
     const createdBy = req.user.id;
 
+    // Check for accidental duplicate submission within 3 seconds by the same user with the same title
+    const recentDuplicate = await ContestModel.findRecentDuplicate({
+      title,
+      createdBy,
+      withinSeconds: 3,
+    });
+    if (recentDuplicate) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'A contest with this title was just created. Please wait a moment before resubmitting.',
+        duplicateContestId: recentDuplicate.id,
+      });
+    }
+
     const contest = await ContestModel.createContestWithSafety({
       title,
       description,

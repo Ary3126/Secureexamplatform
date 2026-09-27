@@ -24,6 +24,7 @@ import {
   Award,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
+import AdminContestCreateModal from './AdminContestCreateModal';
 import './adminContestManagement.css';
 
 /**
@@ -102,7 +103,10 @@ export default function AdminContestManagement({
   onPublishContest,
   onArchiveContest,
   onRetry,
+  onCreateContest,
+  isCreating = false,
 }) {
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const totalPages = Math.max(Math.ceil(totalContests / limit) || 1, 1);
 
   // Quick Metrics (computed from currently loaded page or total indicators)
@@ -172,28 +176,30 @@ export default function AdminContestManagement({
           </span>
         </div>
 
-        <button
-          onClick={() => {
-            alert('Contest creation workflow will be activated in Phase 7.5.3 (Create Contest Workflow).');
-          }}
-          style={{
-            background: '#38bdf8',
-            color: '#0f172a',
-            border: 'none',
-            borderRadius: '6px',
-            padding: '8px 16px',
-            fontWeight: '700',
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            boxShadow: '0 4px 12px rgba(56, 189, 248, 0.25)',
-          }}
-          title="Create Contest (Phase 7.5.3)"
-        >
-          <Plus size={16} /> New Contest
-        </button>
+        {currentUser?.role !== 'student' && (
+          <button
+            className="btn-create-contest-top"
+            onClick={() => setIsCreateOpen(true)}
+            style={{
+              background: '#38bdf8',
+              color: '#0f172a',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '8px 16px',
+              fontWeight: '700',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 4px 12px rgba(56, 189, 248, 0.25)',
+              transition: 'all 0.15s ease',
+            }}
+            title="Create New Contest (Draft)"
+          >
+            <Plus size={16} /> New Contest
+          </button>
+        )}
       </div>
 
       {/* 2. Quick Metrics Row */}
@@ -418,9 +424,17 @@ export default function AdminContestManagement({
             <p className="empty-state-desc">
               No contests match your current search or filter parameters. Try adjusting your search term or resetting the filters.
             </p>
-            {hasActiveFilters && (
+            {hasActiveFilters ? (
               <button className="btn-reset-filters" onClick={onResetFilters} style={{ marginTop: '8px' }}>
                 <RotateCcw size={13} /> Clear All Filters
+              </button>
+            ) : currentUser?.role !== 'student' && (
+              <button
+                className="btn-submit-create"
+                onClick={() => setIsCreateOpen(true)}
+                style={{ marginTop: '12px', display: 'inline-flex' }}
+              >
+                <Plus size={16} /> Create First Contest
               </button>
             )}
           </div>
@@ -813,6 +827,23 @@ export default function AdminContestManagement({
           </div>
         </div>
       )}
+
+      {/* 9. Create Contest Modal (Phase 7.5.3) */}
+      <AdminContestCreateModal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onCreate={async (payload) => {
+          if (onCreateContest) {
+            const res = await onCreateContest(payload);
+            if (res && res.success) {
+              setIsCreateOpen(false);
+            }
+            return res;
+          }
+        }}
+        isSubmitting={isCreating}
+        currentUser={currentUser}
+      />
     </div>
   );
 }

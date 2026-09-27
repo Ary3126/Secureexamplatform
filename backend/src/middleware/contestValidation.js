@@ -12,7 +12,18 @@ const isValidDate = (dateString) => {
  * Validate contest creation payload
  */
 const validateCreateContest = (req, res, next) => {
-  const { title, startTime, endTime, description } = req.body;
+  const {
+    title,
+    startTime,
+    endTime,
+    description,
+    accessScope,
+    visibility,
+    isRated,
+    leaderboardFreezeEnabled,
+    leaderboardFreezeMinutes,
+    durationMinutes,
+  } = req.body;
   const errors = [];
 
   if (!title || typeof title !== 'string' || title.trim().length < 3 || title.trim().length > 200) {
@@ -32,11 +43,65 @@ const validateCreateContest = (req, res, next) => {
     const end = new Date(endTime);
     if (end <= start) {
       errors.push('Contest end time must be later than the start time.');
+    } else {
+      const diffMins = (end.getTime() - start.getTime()) / 60000;
+      if (diffMins < 1) {
+        errors.push('Contest duration must be at least 1 minute.');
+      }
     }
   }
 
-  if (description !== undefined && typeof description !== 'string') {
-    errors.push('Description must be a valid text string.');
+  if (description !== undefined && description !== null) {
+    if (typeof description !== 'string') {
+      errors.push('Description must be a valid text string.');
+    } else if (description.trim().length > 10000) {
+      errors.push('Description cannot exceed 10000 characters.');
+    }
+  }
+
+  if (accessScope !== undefined && accessScope !== null) {
+    if (typeof accessScope !== 'string' || !['public', 'private', 'restricted'].includes(accessScope.toLowerCase())) {
+      errors.push('Invalid access scope. Allowed values: public, private, restricted.');
+    }
+  }
+
+  if (visibility !== undefined && visibility !== null) {
+    if (typeof visibility !== 'string' || !['public', 'private', 'restricted'].includes(visibility.toLowerCase())) {
+      errors.push('Invalid visibility. Allowed values: public, private, restricted.');
+    }
+  }
+
+  if (isRated !== undefined && isRated !== null) {
+    if (typeof isRated !== 'boolean') {
+      errors.push('isRated must be a boolean value.');
+    }
+  }
+
+  if (leaderboardFreezeEnabled !== undefined && leaderboardFreezeEnabled !== null) {
+    if (typeof leaderboardFreezeEnabled !== 'boolean') {
+      errors.push('leaderboardFreezeEnabled must be a boolean value.');
+    }
+  }
+
+  if (leaderboardFreezeMinutes !== undefined && leaderboardFreezeMinutes !== null) {
+    const freezeMins = typeof leaderboardFreezeMinutes === 'number'
+      ? leaderboardFreezeMinutes
+      : Number(leaderboardFreezeMinutes);
+    if (isNaN(freezeMins) || !Number.isInteger(freezeMins) || freezeMins < 0) {
+      errors.push('leaderboardFreezeMinutes must be a non-negative integer.');
+    } else if (startTime && endTime && isValidDate(startTime) && isValidDate(endTime)) {
+      const durationMins = (new Date(endTime).getTime() - new Date(startTime).getTime()) / 60000;
+      if (freezeMins > durationMins) {
+        errors.push('Leaderboard freeze duration cannot exceed the total contest duration.');
+      }
+    }
+  }
+
+  if (durationMinutes !== undefined && durationMinutes !== null) {
+    const dm = Number(durationMinutes);
+    if (isNaN(dm) || dm <= 0) {
+      errors.push('durationMinutes must be a positive integer.');
+    }
   }
 
   if (errors.length > 0) {

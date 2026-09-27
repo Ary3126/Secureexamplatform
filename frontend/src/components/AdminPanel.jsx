@@ -342,6 +342,7 @@ function ContestsSection({ token, currentUser }) {
   const [sortOrder, setSortOrder] = useState('DESC');
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState(null);
 
   // Contest Inspection Modal state
@@ -440,6 +441,41 @@ function ContestsSection({ token, currentUser }) {
     }
   };
 
+  const handleCreateContest = async (contestData) => {
+    setIsCreating(true);
+    try {
+      const res = await fetch('/api/contests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(contestData),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errorMsg = data.errors && Array.isArray(data.errors)
+          ? data.errors.join(' ')
+          : (data.message || 'Failed to create contest');
+        return { success: false, error: errorMsg };
+      }
+
+      // Successful creation: refresh list and inspect new draft contest
+      fetchContests();
+      if (data.contest && data.contest.id) {
+        handleInspectContest(data.contest.id);
+      }
+      return { success: true, contest: data.contest };
+    } catch (err) {
+      console.error('Error creating contest:', err);
+      return { success: false, error: err.message || 'Network error occurred while creating contest.' };
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const handleArchiveContest = async (contestId) => {
     setIsProcessing(true);
     try {
@@ -509,6 +545,8 @@ function ContestsSection({ token, currentUser }) {
       onPublishContest={handlePublishContest}
       onArchiveContest={handleArchiveContest}
       onRetry={fetchContests}
+      onCreateContest={handleCreateContest}
+      isCreating={isCreating}
     />
   );
 }
