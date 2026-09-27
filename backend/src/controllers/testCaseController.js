@@ -14,8 +14,16 @@ const { canManageResource } = require('../services/contestService');
 const createTestCase = async (req, res, next) => {
   try {
     const { problemId } = req.params;
-    const problem = await ProblemModel.findProblemById(problemId);
+    const parsedProblemId = parseInt(problemId, 10);
+    if (isNaN(parsedProblemId) || parsedProblemId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
 
+    const problem = await ProblemModel.findProblemById(parsedProblemId);
     if (!problem) {
       return res.status(404).json({
         status: 'error',
@@ -41,13 +49,14 @@ const createTestCase = async (req, res, next) => {
       });
     }
 
-    const { inputData, expectedOutput, isHidden, timeLimitMs, memoryLimitMb, testOrder } = req.body;
+    const { inputData, expectedOutput, isHidden, isSample, timeLimitMs, memoryLimitMb, testOrder } = req.body;
 
     const testCase = await TestCaseModel.createTestCaseWithSafety({
-      problemId: parseInt(problemId, 10),
+      problemId: parsedProblemId,
       inputData,
       expectedOutput,
       isHidden,
+      isSample,
       timeLimitMs,
       memoryLimitMb,
       testOrder,
@@ -69,8 +78,16 @@ const createTestCase = async (req, res, next) => {
 const getTestCases = async (req, res, next) => {
   try {
     const { problemId } = req.params;
-    const problem = await ProblemModel.findProblemById(problemId);
+    const parsedProblemId = parseInt(problemId, 10);
+    if (isNaN(parsedProblemId) || parsedProblemId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
 
+    const problem = await ProblemModel.findProblemById(parsedProblemId);
     if (!problem) {
       return res.status(404).json({
         status: 'error',
@@ -87,11 +104,53 @@ const getTestCases = async (req, res, next) => {
       });
     }
 
-    const testCases = await TestCaseModel.findTestCasesByProblemId(problemId, { includeHidden: true });
+    const testCases = await TestCaseModel.findTestCasesByProblemId(parsedProblemId, { includeHidden: true });
 
     return res.status(200).json({
       count: testCases.length,
       testCases,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get specific test case by ID (Administrative only)
+ * @route GET /api/test-cases/:id
+ */
+const getTestCaseById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid test case identifier format',
+      });
+    }
+
+    const testCase = await TestCaseModel.findTestCaseById(parsedId);
+    if (!testCase) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Test case with ID ${id} not found`,
+      });
+    }
+
+    const problem = await ProblemModel.findProblemById(testCase.problemId);
+    if (!canManageResource(req.user, problem)) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to view this test case',
+      });
+    }
+
+    return res.status(200).json({
+      testCase,
     });
   } catch (error) {
     next(error);
@@ -105,8 +164,16 @@ const getTestCases = async (req, res, next) => {
 const updateTestCase = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const testCase = await TestCaseModel.findTestCaseById(id);
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid test case identifier format',
+      });
+    }
 
+    const testCase = await TestCaseModel.findTestCaseById(parsedId);
     if (!testCase) {
       return res.status(404).json({
         status: 'error',
@@ -116,6 +183,14 @@ const updateTestCase = async (req, res, next) => {
     }
 
     const problem = await ProblemModel.findProblemById(testCase.problemId);
+    if (!problem) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Parent problem with ID ${testCase.problemId} not found`,
+      });
+    }
+
     if (!canManageResource(req.user, problem)) {
       await AuditLogger.logAction({
         actor: req.user,
@@ -133,7 +208,7 @@ const updateTestCase = async (req, res, next) => {
       });
     }
 
-    const updated = await TestCaseModel.updateTestCaseWithSafety(id, req.body, req.user, req);
+    const updated = await TestCaseModel.updateTestCaseWithSafety(parsedId, req.body, req.user, req);
 
     return res.status(200).json({
       message: 'Test case updated successfully',
@@ -151,8 +226,16 @@ const updateTestCase = async (req, res, next) => {
 const deleteTestCase = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const testCase = await TestCaseModel.findTestCaseById(id);
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid test case identifier format',
+      });
+    }
 
+    const testCase = await TestCaseModel.findTestCaseById(parsedId);
     if (!testCase) {
       return res.status(404).json({
         status: 'error',
@@ -162,6 +245,14 @@ const deleteTestCase = async (req, res, next) => {
     }
 
     const problem = await ProblemModel.findProblemById(testCase.problemId);
+    if (!problem) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Parent problem with ID ${testCase.problemId} not found`,
+      });
+    }
+
     if (!canManageResource(req.user, problem)) {
       await AuditLogger.logAction({
         actor: req.user,
@@ -179,11 +270,11 @@ const deleteTestCase = async (req, res, next) => {
       });
     }
 
-    await TestCaseModel.deleteTestCaseWithSafety(id, req.user, req, testCase.problemId);
+    await TestCaseModel.deleteTestCaseWithSafety(parsedId, req.user, req, testCase.problemId);
 
     return res.status(200).json({
       message: 'Test case deleted successfully',
-      deletedTestCaseId: id,
+      deletedTestCaseId: parsedId,
     });
   } catch (error) {
     next(error);
@@ -193,6 +284,7 @@ const deleteTestCase = async (req, res, next) => {
 module.exports = {
   createTestCase,
   getTestCases,
+  getTestCaseById,
   updateTestCase,
   deleteTestCase,
 };

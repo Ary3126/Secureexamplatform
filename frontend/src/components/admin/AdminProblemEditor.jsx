@@ -24,6 +24,7 @@ import {
   Hash,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
+import AdminTestCaseManager from './AdminTestCaseManager';
 import './adminProblemManagement.css';
 
 /**
@@ -104,6 +105,7 @@ export default function AdminProblemEditor({
     ],
     starterTemplates: { ...DEFAULT_STARTER_TEMPLATES.function },
     harnessTemplates: { ...DEFAULT_HARNESS_TEMPLATES },
+    testCases: [],
   });
 
   // Track initial state for dirty detection
@@ -188,6 +190,14 @@ export default function AdminProblemEditor({
               ...DEFAULT_HARNESS_TEMPLATES,
               ...(p.harnessTemplates || p.harness_templates || {}),
             },
+            testCases: loadedExamples.map((ex, i) => ({
+              id: ex.id || `tc-${i + 1}`,
+              inputData: ex.input || '',
+              expectedOutput: ex.output || '',
+              isHidden: false,
+              isSample: true,
+              testOrder: i + 1,
+            })),
           };
 
           setFormData(loadedData);
@@ -308,16 +318,26 @@ export default function AdminProblemEditor({
       const endpoint = mode === 'edit' ? `/api/problems/${problemId}` : '/api/problems';
       const method = mode === 'edit' ? 'PUT' : 'POST';
 
-      // Assemble sample test cases payload from examples
-      const sampleTestCasesPayload = formData.examples.map((ex, idx) => ({
-        inputData: ex.input || '',
-        expectedOutput: ex.output || '',
-        isSample: true,
-        isHidden: false,
-        timeLimitMs: formData.timeLimitMs,
-        memoryLimitMb: formData.memoryLimitMb,
-        testOrder: idx + 1,
-      }));
+      // Assemble test cases payload: use formData.testCases if configured, else fallback to examples
+      const testCasesPayload = (formData.testCases && formData.testCases.length > 0)
+        ? formData.testCases.map((tc, idx) => ({
+            inputData: tc.inputData || '',
+            expectedOutput: tc.expectedOutput || '',
+            isSample: tc.isSample !== undefined ? tc.isSample : !tc.isHidden,
+            isHidden: tc.isHidden !== undefined ? tc.isHidden : !tc.isSample,
+            timeLimitMs: tc.timeLimitMs || formData.timeLimitMs,
+            memoryLimitMb: tc.memoryLimitMb || formData.memoryLimitMb,
+            testOrder: tc.testOrder || (idx + 1),
+          }))
+        : formData.examples.map((ex, idx) => ({
+            inputData: ex.input || '',
+            expectedOutput: ex.output || '',
+            isSample: true,
+            isHidden: false,
+            timeLimitMs: formData.timeLimitMs,
+            memoryLimitMb: formData.memoryLimitMb,
+            testOrder: idx + 1,
+          }));
 
       const payload = {
         title: formData.title.trim(),
@@ -327,7 +347,7 @@ export default function AdminProblemEditor({
         accessScope: formData.accessScope.toLowerCase(),
         starterTemplates: formData.starterTemplates,
         harnessTemplates: formData.harnessTemplates,
-        testCases: sampleTestCasesPayload,
+        testCases: testCasesPayload,
         version: formData.version,
       };
 
@@ -514,7 +534,7 @@ export default function AdminProblemEditor({
             onClick={() => setActiveTab('test_cases')}
             data-testid="tab-test-cases"
           >
-            <Database size={16} /> 6. Test Case Foundation
+            <Database size={16} /> 6. Test Cases
           </button>
 
           <button
@@ -998,61 +1018,22 @@ export default function AdminProblemEditor({
             </div>
           )}
 
-          {/* SECTION 6: TEST CASE FOUNDATION */}
+          {/* SECTION 6: TEST CASE MANAGEMENT (Phase 7.4.6) */}
           {activeTab === 'test_cases' && (
             <div data-testid="section-test-cases">
-              <h3>6. Test Case Foundation</h3>
-              <p className="editor-content-subtitle">
-                Architectural overview of sample test cases and hidden evaluation suites.
-              </p>
-
-              <div className="test-case-metrics-grid">
-                <div className="metric-box">
-                  <span className="metric-label">Public Sample Test Cases</span>
-                  <span className="metric-val">{formData.examples.length}</span>
-                  <span className="metric-sub">Visible to candidate in Problem Pane</span>
-                </div>
-
-                <div className="metric-box">
-                  <span className="metric-label">Confidential Evaluation Cases</span>
-                  <span className="metric-val">Protected</span>
-                  <span className="metric-sub">Isolated from candidate and public endpoints</span>
-                </div>
-              </div>
-
-              <div className="test-cases-table-wrap">
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#f8fafc' }}>
-                  Sample Test Cases Preview
-                </h4>
-                <table className="test-cases-preview-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '60px' }}>#</th>
-                      <th>Input Preview</th>
-                      <th>Expected Output</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {formData.examples.map((ex, idx) => (
-                      <tr key={ex.id || idx}>
-                        <td><strong>#{idx + 1}</strong></td>
-                        <td className="font-mono">{ex.input ? (ex.input.length > 40 ? ex.input.slice(0, 40) + '...' : ex.input) : '(empty)'}</td>
-                        <td className="font-mono">{ex.output ? (ex.output.length > 40 ? ex.output.slice(0, 40) + '...' : ex.output) : '(empty)'}</td>
-                        <td><span className="badge-sample">Public Sample</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="architecture-placeholder-box" style={{ marginTop: '16px' }}>
-                <Database size={24} style={{ color: '#fbbf24' }} />
-                <p>
-                  <strong>Phase 7.4.4 Foundation:</strong> Batch zip upload of large hidden test suites and automated oracle generators
-                  will be managed via the dedicated Test Case Studio.
-                </p>
-              </div>
+              <AdminTestCaseManager
+                problemId={problemId}
+                mode={mode}
+                token={token}
+                codingMode={formData.codingMode}
+                localTestCases={formData.testCases || []}
+                onLocalTestCasesChange={(updatedCases) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    testCases: updatedCases,
+                  }));
+                }}
+              />
             </div>
           )}
 

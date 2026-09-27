@@ -6,13 +6,30 @@
  * Validate Test Case creation payload
  */
 const validateCreateTestCase = (req, res, next) => {
-  const { inputData, expectedOutput, isHidden, timeLimitMs, memoryLimitMb, testOrder } = req.body;
+  const { inputData, expectedOutput, isHidden, isSample, timeLimitMs, memoryLimitMb, testOrder } = req.body;
 
   if (expectedOutput === undefined || expectedOutput === null) {
     return res.status(400).json({
       status: 'error',
       statusCode: 400,
       message: 'Validation failed: expectedOutput is required',
+    });
+  }
+
+  // Prevent oversized input/output payload injection (5MB max)
+  const MAX_PAYLOAD_SIZE = 5 * 1024 * 1024;
+  if (typeof inputData === 'string' && inputData.length > MAX_PAYLOAD_SIZE) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed: inputData size exceeds 5MB limit',
+    });
+  }
+  if (typeof expectedOutput === 'string' && expectedOutput.length > MAX_PAYLOAD_SIZE) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed: expectedOutput size exceeds 5MB limit',
     });
   }
 
@@ -42,11 +59,89 @@ const validateCreateTestCase = (req, res, next) => {
 
   if (isHidden !== undefined) {
     req.body.isHidden = Boolean(isHidden);
+  } else if (isSample !== undefined) {
+    req.body.isHidden = !Boolean(isSample);
   }
 
   if (testOrder !== undefined) {
     req.body.testOrder = parseInt(testOrder, 10) || 1;
   }
+
+  // Strip client injection attempts
+  delete req.body.id;
+
+  next();
+};
+
+/**
+ * Validate Test Case update payload
+ */
+const validateUpdateTestCase = (req, res, next) => {
+  const { inputData, expectedOutput, isHidden, isSample, timeLimitMs, memoryLimitMb, testOrder } = req.body;
+
+  const MAX_PAYLOAD_SIZE = 5 * 1024 * 1024;
+  if (inputData !== undefined && typeof inputData === 'string' && inputData.length > MAX_PAYLOAD_SIZE) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed: inputData size exceeds 5MB limit',
+    });
+  }
+  if (expectedOutput !== undefined) {
+    if (expectedOutput === null) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Validation failed: expectedOutput cannot be null',
+      });
+    }
+    if (typeof expectedOutput === 'string' && expectedOutput.length > MAX_PAYLOAD_SIZE) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Validation failed: expectedOutput size exceeds 5MB limit',
+      });
+    }
+  }
+
+  if (timeLimitMs !== undefined) {
+    const parsedTime = parseInt(timeLimitMs, 10);
+    if (isNaN(parsedTime) || parsedTime <= 0 || parsedTime > 15000) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Validation failed: timeLimitMs must be between 1 and 15000 milliseconds',
+      });
+    }
+    req.body.timeLimitMs = parsedTime;
+  }
+
+  if (memoryLimitMb !== undefined) {
+    const parsedMem = parseInt(memoryLimitMb, 10);
+    if (isNaN(parsedMem) || parsedMem <= 0 || parsedMem > 1024) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Validation failed: memoryLimitMb must be between 1 and 1024 MB',
+      });
+    }
+    req.body.memoryLimitMb = parsedMem;
+  }
+
+  if (isHidden !== undefined) {
+    req.body.isHidden = Boolean(isHidden);
+  } else if (isSample !== undefined) {
+    req.body.isHidden = !Boolean(isSample);
+  }
+
+  if (testOrder !== undefined) {
+    req.body.testOrder = parseInt(testOrder, 10) || 1;
+  }
+
+  // Prevent modifying immutable foreign key or primary key
+  delete req.body.id;
+  delete req.body.problemId;
+  delete req.body.problem_id;
 
   next();
 };
@@ -151,5 +246,6 @@ const validateCreateSubmission = (req, res, next) => {
 
 module.exports = {
   validateCreateTestCase,
+  validateUpdateTestCase,
   validateCreateSubmission,
 };

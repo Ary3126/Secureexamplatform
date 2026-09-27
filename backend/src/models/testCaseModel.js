@@ -15,29 +15,53 @@ class TestCaseModel {
     problemId,
     inputData = '',
     expectedOutput = '',
-    isHidden = true,
+    isHidden,
+    isSample,
+    is_hidden,
+    is_sample,
     timeLimitMs = 2000,
     memoryLimitMb = 256,
     testOrder = 1,
   }, client = null) {
+    let effectiveHidden = true;
+    if (isHidden !== undefined) effectiveHidden = Boolean(isHidden);
+    else if (is_hidden !== undefined) effectiveHidden = Boolean(is_hidden);
+    else if (isSample !== undefined) effectiveHidden = !Boolean(isSample);
+    else if (is_sample !== undefined) effectiveHidden = !Boolean(is_sample);
+
+    const effectiveSample = !effectiveHidden;
+    const effectiveOrder = parseInt(testOrder, 10) || 1;
+
     const text = `
       INSERT INTO test_cases (
-        problem_id, input_data, expected_output, is_hidden, time_limit_ms, memory_limit_mb, test_order
+        problem_id, input_data, expected_output, is_hidden, is_sample, time_limit_ms, memory_limit_mb, test_order, order_index
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING 
         id, 
         problem_id AS "problemId", 
         input_data AS "inputData", 
         expected_output AS "expectedOutput", 
         is_hidden AS "isHidden", 
+        is_sample AS "isSample", 
         time_limit_ms AS "timeLimitMs", 
         memory_limit_mb AS "memoryLimitMb", 
         test_order AS "testOrder", 
+        order_index AS "orderIndex", 
         created_at AS "createdAt", 
         updated_at AS "updatedAt";
     `;
-    const values = [problemId, inputData, expectedOutput, isHidden, timeLimitMs, memoryLimitMb, testOrder];
+    const values = [
+      problemId,
+      inputData,
+      expectedOutput,
+      effectiveHidden,
+      effectiveSample,
+      timeLimitMs,
+      memoryLimitMb,
+      effectiveOrder,
+      effectiveOrder,
+    ];
     const res = await (client || db).query(text, values);
     return res.rows[0];
   }
@@ -59,7 +83,7 @@ class TestCaseModel {
           resourceType: 'test_case',
           resourceId: testCase.id,
           outcome: 'success',
-          metadata: { problemId: testCase.problemId, isHidden: testCase.isHidden },
+          metadata: { problemId: testCase.problemId, isHidden: testCase.isHidden, isSample: testCase.isSample },
           client,
           req,
         });
@@ -91,9 +115,11 @@ class TestCaseModel {
         tc.input_data AS "inputData", 
         tc.expected_output AS "expectedOutput", 
         tc.is_hidden AS "isHidden", 
+        COALESCE(tc.is_sample, NOT tc.is_hidden) AS "isSample", 
         tc.time_limit_ms AS "timeLimitMs", 
         tc.memory_limit_mb AS "memoryLimitMb", 
         tc.test_order AS "testOrder", 
+        COALESCE(tc.order_index, tc.test_order, 1) AS "orderIndex", 
         p.created_by AS "problemCreatorId",
         tc.created_at AS "createdAt", 
         tc.updated_at AS "updatedAt"
@@ -120,9 +146,11 @@ class TestCaseModel {
         input_data AS "inputData", 
         expected_output AS "expectedOutput", 
         is_hidden AS "isHidden", 
+        COALESCE(is_sample, NOT is_hidden) AS "isSample", 
         time_limit_ms AS "timeLimitMs", 
         memory_limit_mb AS "memoryLimitMb", 
         test_order AS "testOrder", 
+        COALESCE(order_index, test_order, 1) AS "orderIndex", 
         created_at AS "createdAt", 
         updated_at AS "updatedAt"
       FROM test_cases
@@ -131,10 +159,10 @@ class TestCaseModel {
     const values = [problemId];
 
     if (!includeHidden) {
-      text += ' AND is_hidden = false';
+      text += ' AND (is_hidden = false OR is_sample = true)';
     }
 
-    text += ' ORDER BY test_order ASC, id ASC;';
+    text += ' ORDER BY COALESCE(test_order, order_index, 1) ASC, id ASC;';
     const res = await (client || db).query(text, values);
     return res.rows;
   }
@@ -162,31 +190,49 @@ class TestCaseModel {
    * @param {Object|null} client
    * @returns {Promise<Object|null>}
    */
-  static async updateTestCase(id, { inputData, expectedOutput, isHidden, timeLimitMs, memoryLimitMb, testOrder }, client = null) {
+  static async updateTestCase(id, updateData, client = null) {
+    const inputData = updateData.inputData !== undefined ? updateData.inputData : updateData.input_data;
+    const expectedOutput = updateData.expectedOutput !== undefined ? updateData.expectedOutput : updateData.expected_output;
+
+    let isHidden = undefined;
+    if (updateData.isHidden !== undefined) isHidden = Boolean(updateData.isHidden);
+    else if (updateData.is_hidden !== undefined) isHidden = Boolean(updateData.is_hidden);
+    else if (updateData.isSample !== undefined) isHidden = !Boolean(updateData.isSample);
+    else if (updateData.is_sample !== undefined) isHidden = !Boolean(updateData.is_sample);
+
+    const isSample = isHidden !== undefined ? !isHidden : undefined;
+    const timeLimitMs = updateData.timeLimitMs !== undefined ? updateData.timeLimitMs : updateData.time_limit_ms;
+    const memoryLimitMb = updateData.memoryLimitMb !== undefined ? updateData.memoryLimitMb : updateData.memory_limit_mb;
+    const testOrder = updateData.testOrder !== undefined ? updateData.testOrder : (updateData.test_order !== undefined ? updateData.test_order : updateData.order_index);
+
     const text = `
       UPDATE test_cases
       SET 
         input_data = COALESCE($1, input_data),
         expected_output = COALESCE($2, expected_output),
         is_hidden = COALESCE($3, is_hidden),
-        time_limit_ms = COALESCE($4, time_limit_ms),
-        memory_limit_mb = COALESCE($5, memory_limit_mb),
-        test_order = COALESCE($6, test_order),
+        is_sample = COALESCE($4, is_sample),
+        time_limit_ms = COALESCE($5, time_limit_ms),
+        memory_limit_mb = COALESCE($6, memory_limit_mb),
+        test_order = COALESCE($7, test_order),
+        order_index = COALESCE($7, order_index),
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $7
+      WHERE id = $8
       RETURNING 
         id, 
         problem_id AS "problemId", 
         input_data AS "inputData", 
         expected_output AS "expectedOutput", 
         is_hidden AS "isHidden", 
+        is_sample AS "isSample", 
         time_limit_ms AS "timeLimitMs", 
         memory_limit_mb AS "memoryLimitMb", 
         test_order AS "testOrder", 
+        order_index AS "orderIndex", 
         created_at AS "createdAt", 
         updated_at AS "updatedAt";
     `;
-    const values = [inputData, expectedOutput, isHidden, timeLimitMs, memoryLimitMb, testOrder, id];
+    const values = [inputData, expectedOutput, isHidden, isSample, timeLimitMs, memoryLimitMb, testOrder, id];
     const res = await (client || db).query(text, values);
     return res.rows[0] || null;
   }
