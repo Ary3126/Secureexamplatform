@@ -343,6 +343,7 @@ function ContestsSection({ token, currentUser }) {
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState(null);
 
   // Contest Inspection Modal state
@@ -500,6 +501,42 @@ function ContestsSection({ token, currentUser }) {
     }
   };
 
+  const handleUpdateContest = async (contestId, payload) => {
+    setIsEditing(true);
+    try {
+      const res = await fetch(`/api/contests/${contestId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const errorMsg =
+          data.errors && Array.isArray(data.errors)
+            ? data.errors.join(' ')
+            : data.message || 'Failed to update contest';
+        return { success: false, error: errorMsg };
+      }
+
+      // Refresh list and re-fetch inspection panel if it's the same contest
+      fetchContests();
+      if (inspectedContest?.id === contestId) {
+        handleInspectContest(contestId);
+      }
+      return { success: true, contest: data.contest };
+    } catch (err) {
+      console.error('Update contest failed:', err);
+      return { success: false, error: err.message || 'Network error while updating contest.' };
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
   const handleResetFilters = () => {
     setSearch('');
     setStatusFilter('all');
@@ -526,6 +563,7 @@ function ContestsSection({ token, currentUser }) {
       sortOrder={sortOrder}
       loading={loading}
       isProcessing={isProcessing}
+      isEditing={isEditing}
       error={error}
       currentUser={currentUser}
       inspectedContest={inspectedContest}
@@ -544,6 +582,7 @@ function ContestsSection({ token, currentUser }) {
       onCloseInspect={() => setInspectedContest(null)}
       onPublishContest={handlePublishContest}
       onArchiveContest={handleArchiveContest}
+      onUpdateContest={handleUpdateContest}
       onRetry={fetchContests}
       onCreateContest={handleCreateContest}
       isCreating={isCreating}

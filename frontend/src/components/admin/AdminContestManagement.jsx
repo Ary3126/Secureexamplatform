@@ -22,9 +22,11 @@ import {
   ExternalLink,
   Flame,
   Award,
+  Edit3,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 import AdminContestCreateModal from './AdminContestCreateModal';
+import AdminContestEditModal from './AdminContestEditModal';
 import './adminContestManagement.css';
 
 /**
@@ -84,6 +86,7 @@ export default function AdminContestManagement({
   sortOrder = 'DESC',
   loading = false,
   isProcessing = false,
+  isEditing = false,
   error = null,
   currentUser = null,
   inspectedContest = null,
@@ -102,12 +105,41 @@ export default function AdminContestManagement({
   onCloseInspect,
   onPublishContest,
   onArchiveContest,
+  onUpdateContest,
   onRetry,
   onCreateContest,
   isCreating = false,
 }) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // editContest holds the full contest row currently being edited (or null if closed)
+  const [editContest, setEditContest] = useState(null);
   const totalPages = Math.max(Math.ceil(totalContests / limit) || 1, 1);
+
+  /**
+   * Returns true if the current user has management permissions for the given contest.
+   * This mirrors the server-side canManageResource logic (UI hint only; server enforces).
+   */
+  const canManageContest = (c) => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'super_admin' || currentUser.role === 'contest_admin')
+      return true;
+    if (currentUser.role === 'professor' && c.createdBy === currentUser.id)
+      return true;
+    return false;
+  };
+
+  /**
+   * Called by AdminContestEditModal when the form is submitted.
+   * Forwards to onUpdateContest (provided by AdminPanel), then closes the modal on success.
+   */
+  const handleEditSubmit = async (contestId, payload) => {
+    if (!onUpdateContest) return { success: false, error: 'Update handler not configured.' };
+    const result = await onUpdateContest(contestId, payload);
+    if (result && result.success) {
+      setEditContest(null);
+    }
+    return result;
+  };
 
   // Quick Metrics (computed from currently loaded page or total indicators)
   const runningCount = contests.filter((c) => (c.runtimeState || '').toLowerCase() === 'running').length;
@@ -566,6 +598,23 @@ export default function AdminContestManagement({
                             <Eye size={13} /> Inspect
                           </button>
 
+                          {/* Edit Button (managers only) */}
+                          {canManageContest(c) && onUpdateContest && (
+                            <button
+                              onClick={() => setEditContest(c)}
+                              disabled={isProcessing || isEditing}
+                              className="btn-table-action"
+                              style={{
+                                background: 'rgba(56, 189, 248, 0.1)',
+                                color: '#38bdf8',
+                                border: '1px solid rgba(56, 189, 248, 0.25)',
+                              }}
+                              title="Edit contest metadata"
+                            >
+                              <Edit3 size={13} /> Edit
+                            </button>
+                          )}
+
                           {/* Leaderboard Link Button */}
                           <a
                             href={`/contests/${c.id}/leaderboard`}
@@ -828,7 +877,17 @@ export default function AdminContestManagement({
         </div>
       )}
 
-      {/* 9. Create Contest Modal (Phase 7.5.3) */}
+      {/* 9. Edit Contest Modal (Phase 7.5.4) */}
+      <AdminContestEditModal
+        isOpen={Boolean(editContest)}
+        onClose={() => setEditContest(null)}
+        onUpdate={handleEditSubmit}
+        isSubmitting={isEditing}
+        contest={editContest}
+        currentUser={currentUser}
+      />
+
+      {/* 10. Create Contest Modal (Phase 7.5.3) */}
       <AdminContestCreateModal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}

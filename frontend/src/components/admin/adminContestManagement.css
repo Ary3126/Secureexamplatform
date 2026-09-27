@@ -1115,3 +1115,32 @@ input:checked + .slider:before {
   }
 }
 
+/* ==========================================================================
+   MODAL BACKDROP — shared by Create and Edit contest modals (Phase 7.5.3+)
+   ========================================================================== */
+
+.contest-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeInBackdrop 0.15s ease-out;
+}
+
+@keyframes fadeInBackdrop {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Locked input — visual cue for disabled timing fields (Phase 7.5.4) */
+.input-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+
