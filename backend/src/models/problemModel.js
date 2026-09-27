@@ -17,6 +17,8 @@ class ProblemModel {
     codingMode = 'full_program',
     starterTemplates = {},
     harnessTemplates = {},
+    functionConfig = {},
+    allowedLanguages = ['python', 'cpp', 'java', 'javascript', 'c'],
     accessScope = 'contest_private',
     createdBy,
   }, client = null) {
@@ -25,9 +27,9 @@ class ProblemModel {
     const isPub = (effectiveScope === 'public');
     const text = `
       INSERT INTO problems (
-        title, description, difficulty, coding_mode, starter_templates, harness_templates, access_scope, created_by, version, is_published, published_at, review_status
+        title, description, difficulty, coding_mode, starter_templates, harness_templates, function_config, allowed_languages, access_scope, created_by, version, is_published, published_at, review_status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, 'draft')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, 'draft')
       RETURNING 
         id, 
         title, 
@@ -39,6 +41,10 @@ class ProblemModel {
         starter_templates AS "starterTemplates",
         harness_templates,
         harness_templates AS "harnessTemplates",
+        function_config,
+        function_config AS "functionConfig",
+        allowed_languages,
+        allowed_languages AS "allowedLanguages",
         access_scope,
         access_scope AS "accessScope",
         version,
@@ -60,6 +66,8 @@ class ProblemModel {
       effectiveMode,
       JSON.stringify(starterTemplates || {}),
       JSON.stringify(harnessTemplates || {}),
+      JSON.stringify(functionConfig || {}),
+      JSON.stringify(Array.isArray(allowedLanguages) && allowedLanguages.length > 0 ? allowedLanguages : ['python', 'cpp', 'java', 'javascript', 'c']),
       effectiveScope,
       createdBy,
       isPub,
@@ -79,6 +87,8 @@ class ProblemModel {
     codingMode = 'full_program',
     starterTemplates = {},
     harnessTemplates = {},
+    functionConfig = {},
+    allowedLanguages = ['python', 'cpp', 'java', 'javascript', 'c'],
     accessScope = 'contest_private',
     createdBy,
     testCases = [],
@@ -94,6 +104,8 @@ class ProblemModel {
         codingMode,
         starterTemplates,
         harnessTemplates,
+        functionConfig,
+        allowedLanguages,
         accessScope,
         createdBy,
       }, client);
@@ -184,6 +196,10 @@ class ProblemModel {
         p.starter_templates AS "starterTemplates",
         p.harness_templates,
         p.harness_templates AS "harnessTemplates",
+        p.function_config,
+        p.function_config AS "functionConfig",
+        p.allowed_languages,
+        p.allowed_languages AS "allowedLanguages",
         p.access_scope,
         p.access_scope AS "accessScope",
         p.version,
@@ -361,6 +377,8 @@ class ProblemModel {
         p.coding_mode AS "codingMode",
         p.starter_templates AS "starterTemplates",
         p.harness_templates AS "harnessTemplates",
+        p.function_config AS "functionConfig",
+        p.allowed_languages AS "allowedLanguages",
         p.access_scope AS "accessScope",
         p.version,
         p.is_published AS "isPublished",
@@ -505,6 +523,8 @@ class ProblemModel {
     codingMode,
     starterTemplates,
     harnessTemplates,
+    functionConfig,
+    allowedLanguages,
     accessScope,
   }, client = null) {
     const text = `
@@ -516,7 +536,9 @@ class ProblemModel {
         coding_mode = COALESCE($4, coding_mode),
         starter_templates = COALESCE($5, starter_templates),
         harness_templates = COALESCE($6, harness_templates),
-        access_scope = COALESCE($7, access_scope),
+        function_config = COALESCE($7, function_config),
+        allowed_languages = COALESCE($8, allowed_languages),
+        access_scope = COALESCE($9, access_scope),
         version = version + 1,
         is_published = false,
         review_status = 'draft',
@@ -524,7 +546,7 @@ class ProblemModel {
         approved_by = NULL,
         approved_at = NULL,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $8
+      WHERE id = $10
       RETURNING 
         id, 
         title, 
@@ -536,6 +558,10 @@ class ProblemModel {
         starter_templates AS "starterTemplates",
         harness_templates,
         harness_templates AS "harnessTemplates",
+        function_config,
+        function_config AS "functionConfig",
+        allowed_languages,
+        allowed_languages AS "allowedLanguages",
         access_scope,
         access_scope AS "accessScope",
         version,
@@ -557,6 +583,8 @@ class ProblemModel {
       codingMode ? codingMode.toLowerCase() : null,
       starterTemplates ? JSON.stringify(starterTemplates) : null,
       harnessTemplates ? JSON.stringify(harnessTemplates) : null,
+      functionConfig ? JSON.stringify(functionConfig) : null,
+      allowedLanguages ? JSON.stringify(allowedLanguages) : null,
       accessScope ? accessScope.toLowerCase() : null,
       id,
     ];
@@ -800,10 +828,10 @@ class ProblemModel {
       await client.query(
         `INSERT INTO problem_versions (
            problem_id, version_number, title, description, difficulty, coding_mode,
-           starter_templates, harness_templates, access_scope, test_cases_snapshot,
+           starter_templates, harness_templates, function_config, allowed_languages, access_scope, test_cases_snapshot,
            validation_config_snapshot, change_summary, source_action, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'published', $13)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published', $15)
          ON CONFLICT (problem_id, version_number) DO UPDATE
          SET 
            title = EXCLUDED.title,
@@ -812,6 +840,8 @@ class ProblemModel {
            coding_mode = EXCLUDED.coding_mode,
            starter_templates = EXCLUDED.starter_templates,
            harness_templates = EXCLUDED.harness_templates,
+           function_config = EXCLUDED.function_config,
+           allowed_languages = EXCLUDED.allowed_languages,
            access_scope = EXCLUDED.access_scope,
            test_cases_snapshot = EXCLUDED.test_cases_snapshot,
            validation_config_snapshot = EXCLUDED.validation_config_snapshot,
@@ -827,6 +857,8 @@ class ProblemModel {
           problem.coding_mode,
           JSON.stringify(problem.starter_templates || {}),
           JSON.stringify(problem.harness_templates || {}),
+          JSON.stringify(problem.function_config || {}),
+          JSON.stringify(problem.allowed_languages || ['python', 'cpp', 'java', 'javascript', 'c']),
           'public',
           JSON.stringify(testCasesSnapshot),
           JSON.stringify(validationConfigSnapshot || {}),
@@ -895,14 +927,18 @@ class ProblemModel {
       // 1. Create cloned problem entity
       const newProbRes = await client.query(
         `INSERT INTO problems (
-           title, description, difficulty, coding_mode, starter_templates, harness_templates, access_scope, created_by, version, is_published, published_at
+           title, description, difficulty, coding_mode, starter_templates, harness_templates, function_config, allowed_languages, access_scope, created_by, version, is_published, published_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, false, null)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, false, null)
          RETURNING 
            id, title, description, difficulty, 
            coding_mode AS "codingMode", 
            starter_templates AS "starterTemplates", 
            harness_templates AS "harnessTemplates", 
+           function_config,
+           function_config AS "functionConfig",
+           allowed_languages,
+           allowed_languages AS "allowedLanguages",
            access_scope AS "accessScope", 
            version, is_published AS "isPublished", published_at AS "publishedAt",
            review_status AS "reviewStatus", approved_version AS "approvedVersion",
@@ -915,6 +951,8 @@ class ProblemModel {
           src.coding_mode,
           JSON.stringify(src.starter_templates || {}),
           JSON.stringify(src.harness_templates || {}),
+          JSON.stringify(src.function_config || {}),
+          JSON.stringify(src.allowed_languages || ['python', 'cpp', 'java', 'javascript', 'c']),
           effectiveScope,
           actor ? actor.id : src.created_by,
         ]
@@ -1035,6 +1073,8 @@ class ProblemModel {
         pv.coding_mode AS "codingMode",
         pv.starter_templates AS "starterTemplates",
         pv.harness_templates AS "harnessTemplates",
+        pv.function_config AS "functionConfig",
+        pv.allowed_languages AS "allowedLanguages",
         pv.access_scope AS "accessScope",
         pv.test_cases_snapshot AS "testCasesSnapshot",
         pv.validation_config_snapshot AS "validationConfigSnapshot",

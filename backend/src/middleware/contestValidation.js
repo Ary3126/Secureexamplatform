@@ -112,7 +112,7 @@ const SUPPORTED_LANGUAGES = ['python', 'cpp', 'java', 'javascript', 'c'];
 /**
  * Validate starter and harness template objects
  */
-const validateTemplates = (templates, fieldName, errors) => {
+const validateTemplates = (templates, fieldName, errors, codingMode = 'full_program') => {
   if (templates === undefined || templates === null) return;
   if (typeof templates !== 'object' || Array.isArray(templates)) {
     errors.push(`${fieldName} must be a valid key-value object of language templates.`);
@@ -123,6 +123,135 @@ const validateTemplates = (templates, fieldName, errors) => {
       errors.push(`Unsupported language "${lang}" in ${fieldName}. Supported languages are: ${SUPPORTED_LANGUAGES.join(', ')}.`);
     } else if (typeof code !== 'string') {
       errors.push(`Template for language "${lang}" in ${fieldName} must be a string.`);
+    } else if (fieldName === 'harnessTemplates' && codingMode === 'function' && code.trim().length > 0) {
+      if (!code.includes('__STUDENT_CODE__')) {
+        errors.push(`Harness template for ${lang} must include the // __STUDENT_CODE__ placeholder.`);
+      }
+    }
+  }
+};
+
+/**
+ * Validate allowed languages list
+ */
+const validateAllowedLanguages = (allowedLanguages, errors) => {
+  if (allowedLanguages === undefined || allowedLanguages === null) return;
+  if (!Array.isArray(allowedLanguages)) {
+    errors.push('allowedLanguages must be an array of language identifiers.');
+    return;
+  }
+  if (allowedLanguages.length === 0) {
+    errors.push('At least one language must be enabled for the problem.');
+    return;
+  }
+  const seen = new Set();
+  for (const lang of allowedLanguages) {
+    if (typeof lang !== 'string') {
+      errors.push('Each language in allowedLanguages must be a string.');
+      continue;
+    }
+    const norm = lang.toLowerCase().trim();
+    if (!SUPPORTED_LANGUAGES.includes(norm)) {
+      errors.push(`Unsupported language "${lang}" in allowedLanguages. Supported languages are: ${SUPPORTED_LANGUAGES.join(', ')}.`);
+    } else if (seen.has(norm)) {
+      errors.push(`Duplicate language "${lang}" in allowedLanguages.`);
+    } else {
+      seen.add(norm);
+    }
+  }
+};
+
+/**
+ * Validate Function Mode function configuration (DSL definition)
+ */
+const validateFunctionConfig = (config, codingMode, errors) => {
+  if (config === undefined || config === null) return;
+
+  if (typeof config !== 'object' || Array.isArray(config)) {
+    errors.push('functionConfig must be a valid object.');
+    return;
+  }
+
+  const { functionName, returnType, parameters } = config;
+
+  if (codingMode === 'function' || functionName !== undefined) {
+    if (!functionName || typeof functionName !== 'string' || functionName.trim().length === 0) {
+      errors.push('Function name is required in Function Mode.');
+    } else {
+      const trimmedName = functionName.trim();
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmedName)) {
+        errors.push(`Function name "${trimmedName}" must be a valid identifier (alphanumeric and underscores only, starting with a letter or underscore).`);
+      } else if (trimmedName.length > 64) {
+        errors.push('Function name must not exceed 64 characters.');
+      }
+    }
+  }
+
+  if (codingMode === 'function' && returnType !== undefined) {
+    if (typeof returnType !== 'string' || returnType.trim().length === 0) {
+      errors.push('Return type is required in Function Mode.');
+    } else if (returnType.trim().length > 64) {
+      errors.push('Return type must not exceed 64 characters.');
+    }
+  }
+
+  if (parameters !== undefined && parameters !== null) {
+    if (Array.isArray(parameters)) {
+      const seenNames = new Set();
+      for (let i = 0; i < parameters.length; i++) {
+        const param = parameters[i];
+        if (!param || typeof param !== 'object' || Array.isArray(param)) {
+          errors.push(`Parameter ${i + 1} must be an object with name and type.`);
+          continue;
+        }
+
+        const pName = typeof param.name === 'string' ? param.name.trim() : '';
+        const pType = typeof param.type === 'string' ? param.type.trim() : '';
+
+        if (!pName) {
+          errors.push(`Parameter ${i + 1} is missing a parameter name.`);
+        } else if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(pName)) {
+          errors.push(`Parameter name "${pName}" must be a valid identifier (alphanumeric and underscores only).`);
+        } else if (seenNames.has(pName.toLowerCase())) {
+          errors.push(`Duplicate parameter name "${pName}". Parameter names must be unique.`);
+        } else {
+          seenNames.add(pName.toLowerCase());
+        }
+
+        if (!pType) {
+          errors.push(`Parameter "${pName || i + 1}" is missing a parameter type.`);
+        }
+      }
+    } else if (typeof parameters === 'string') {
+      const trimmedParams = parameters.trim();
+      if (trimmedParams.length > 0) {
+        const parts = trimmedParams.split(',').map((p) => p.trim()).filter(Boolean);
+        const seenNames = new Set();
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const tokens = part.split(/\s+/).filter(Boolean);
+          if (tokens.length < 2) {
+            errors.push(`Parameter ${i + 1} ("${part}") is missing a parameter name.`);
+          } else {
+            const rawName = tokens[tokens.length - 1].replace(/^[&*]+/, '');
+            const rawType = tokens.slice(0, tokens.length - 1).join(' ');
+
+            if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(rawName)) {
+              errors.push(`Parameter name "${rawName}" must be a valid identifier.`);
+            } else if (seenNames.has(rawName.toLowerCase())) {
+              errors.push(`Duplicate parameter name "${rawName}". Parameter names must be unique.`);
+            } else {
+              seenNames.add(rawName.toLowerCase());
+            }
+
+            if (!rawType) {
+              errors.push(`Parameter "${rawName}" is missing a parameter type.`);
+            }
+          }
+        }
+      }
+    } else {
+      errors.push('Parameters must be an array of parameter objects or a comma-separated parameter string.');
     }
   }
 };
@@ -165,12 +294,22 @@ const validateCreateProblem = (req, res, next) => {
 
   const effectiveStarterTemplates = req.body.starterTemplates !== undefined ? req.body.starterTemplates : req.body.starter_templates;
   if (effectiveStarterTemplates !== undefined) {
-    validateTemplates(effectiveStarterTemplates, 'starterTemplates', errors);
+    validateTemplates(effectiveStarterTemplates, 'starterTemplates', errors, effectiveCodingMode);
   }
 
   const effectiveHarnessTemplates = req.body.harnessTemplates !== undefined ? req.body.harnessTemplates : req.body.harness_templates;
   if (effectiveHarnessTemplates !== undefined) {
-    validateTemplates(effectiveHarnessTemplates, 'harnessTemplates', errors);
+    validateTemplates(effectiveHarnessTemplates, 'harnessTemplates', errors, effectiveCodingMode);
+  }
+
+  const effectiveFunctionConfig = req.body.functionConfig !== undefined ? req.body.functionConfig : req.body.function_config;
+  if (effectiveFunctionConfig !== undefined) {
+    validateFunctionConfig(effectiveFunctionConfig, effectiveCodingMode, errors);
+  }
+
+  const effectiveAllowedLanguages = req.body.allowedLanguages !== undefined ? req.body.allowedLanguages : req.body.allowed_languages;
+  if (effectiveAllowedLanguages !== undefined) {
+    validateAllowedLanguages(effectiveAllowedLanguages, errors);
   }
 
   if (errors.length > 0) {
@@ -229,12 +368,22 @@ const validateUpdateProblem = (req, res, next) => {
 
   const effectiveStarterTemplates = req.body.starterTemplates !== undefined ? req.body.starterTemplates : req.body.starter_templates;
   if (effectiveStarterTemplates !== undefined) {
-    validateTemplates(effectiveStarterTemplates, 'starterTemplates', errors);
+    validateTemplates(effectiveStarterTemplates, 'starterTemplates', errors, effectiveCodingMode);
   }
 
   const effectiveHarnessTemplates = req.body.harnessTemplates !== undefined ? req.body.harnessTemplates : req.body.harness_templates;
   if (effectiveHarnessTemplates !== undefined) {
-    validateTemplates(effectiveHarnessTemplates, 'harnessTemplates', errors);
+    validateTemplates(effectiveHarnessTemplates, 'harnessTemplates', errors, effectiveCodingMode);
+  }
+
+  const effectiveFunctionConfig = req.body.functionConfig !== undefined ? req.body.functionConfig : req.body.function_config;
+  if (effectiveFunctionConfig !== undefined) {
+    validateFunctionConfig(effectiveFunctionConfig, effectiveCodingMode, errors);
+  }
+
+  const effectiveAllowedLanguages = req.body.allowedLanguages !== undefined ? req.body.allowedLanguages : req.body.allowed_languages;
+  if (effectiveAllowedLanguages !== undefined) {
+    validateAllowedLanguages(effectiveAllowedLanguages, errors);
   }
 
   const hasAnyField = (
@@ -246,11 +395,15 @@ const validateUpdateProblem = (req, res, next) => {
     req.body.starterTemplates !== undefined ||
     req.body.starter_templates !== undefined ||
     req.body.harnessTemplates !== undefined ||
-    req.body.harness_templates !== undefined
+    req.body.harness_templates !== undefined ||
+    req.body.functionConfig !== undefined ||
+    req.body.function_config !== undefined ||
+    req.body.allowedLanguages !== undefined ||
+    req.body.allowed_languages !== undefined
   );
 
   if (!hasAnyField) {
-    errors.push('Please provide at least one field to update (title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope).');
+    errors.push('Please provide at least one field to update (title, description, difficulty, codingMode, starterTemplates, harnessTemplates, functionConfig, allowedLanguages, accessScope).');
   }
 
   if (errors.length > 0) {

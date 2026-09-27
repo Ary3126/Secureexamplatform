@@ -52,6 +52,9 @@ import {
   CODING_MODES,
   getCodingModeMeta,
   validateProblemForm,
+  parseParameterString,
+  formatParametersToString,
+  generateTemplatesFromSignature,
 } from './adminProblemEditorConstants.js';
 
 export {
@@ -61,6 +64,9 @@ export {
   CODING_MODES,
   getCodingModeMeta,
   validateProblemForm,
+  parseParameterString,
+  formatParametersToString,
+  generateTemplatesFromSignature,
 };
 
 export default function AdminProblemEditor({
@@ -81,6 +87,8 @@ export default function AdminProblemEditor({
   const [validationErrors, setValidationErrors] = useState({});
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
   const [modeSwitchNotice, setModeSwitchNotice] = useState(null);
+  const [generateNotice, setGenerateNotice] = useState(null);
+  const [previewLang, setPreviewLang] = useState('cpp');
 
   // Per-mode starter templates cache ensuring non-destructive mode switching
   const [modeStarterTemplates, setModeStarterTemplates] = useState({
@@ -102,6 +110,7 @@ export default function AdminProblemEditor({
     outputLimitKb: 512,
     version: 1,
     reviewStatus: 'draft',
+    allowedLanguages: SUPPORTED_LANGUAGES.map((l) => l.id),
     functionConfig: {
       functionName: 'solve',
       returnType: 'int',
@@ -188,7 +197,12 @@ export default function AdminProblemEditor({
             outputLimitKb: 512,
             version: p.version || 1,
             reviewStatus: p.reviewStatus || p.review_status || 'draft',
-            functionConfig: p.functionConfig || {
+            allowedLanguages: p.allowedLanguages || p.allowed_languages || (
+              p.starterTemplates || p.starter_templates
+                ? Object.keys(p.starterTemplates || p.starter_templates).filter((k) => SUPPORTED_LANGUAGES.some((sl) => sl.id === k))
+                : SUPPORTED_LANGUAGES.map((l) => l.id)
+            ),
+            functionConfig: p.functionConfig || p.function_config || {
               functionName: 'solve',
               returnType: 'int',
               parameters: 'vector<int>& nums',
@@ -326,31 +340,135 @@ export default function AdminProblemEditor({
     });
   };
 
+  // Structured parameters parsing & duplicate detection
+  const structuredParams = useMemo(() => {
+    return parseParameterString(formData.functionConfig?.parameters || '');
+  }, [formData.functionConfig?.parameters]);
+
+  const duplicateParamNames = useMemo(() => {
+    const seen = new Set();
+    const dups = new Set();
+    for (const p of structuredParams) {
+      const name = (p.name || '').trim().toLowerCase();
+      if (!name) continue;
+      if (seen.has(name)) {
+        dups.add(name);
+      } else {
+        seen.add(name);
+      }
+    }
+    return Array.from(dups);
+  }, [structuredParams]);
+
+  const handleAddParameter = () => {
+    const nextIdx = structuredParams.length + 1;
+    const newParam = { id: `p-${Date.now()}`, name: `arg${nextIdx}`, type: 'int' };
+    const updated = [...structuredParams, newParam];
+    const formatted = formatParametersToString(updated);
+    setFormData((prev) => ({
+      ...prev,
+      functionConfig: { ...prev.functionConfig, parameters: formatted },
+    }));
+  };
+
+  const handleUpdateParameter = (idx, field, value) => {
+    const updated = structuredParams.map((p, i) => (i === idx ? { ...p, [field]: value } : p));
+    const formatted = formatParametersToString(updated);
+    setFormData((prev) => ({
+      ...prev,
+      functionConfig: { ...prev.functionConfig, parameters: formatted },
+    }));
+  };
+
+  const handleRemoveParameter = (idx) => {
+    const updated = structuredParams.filter((_, i) => i !== idx);
+    const formatted = formatParametersToString(updated);
+    setFormData((prev) => ({
+      ...prev,
+      functionConfig: { ...prev.functionConfig, parameters: formatted },
+    }));
+  };
+
+  const handleToggleLanguage = (langId) => {
+    setFormData((prev) => {
+      const current = prev.allowedLanguages || SUPPORTED_LANGUAGES.map((l) => l.id);
+      let updated;
+      if (current.includes(langId)) {
+        if (current.length === 1) {
+          return prev; // Cannot disable the last language
+        }
+        updated = current.filter((l) => l !== langId);
+      } else {
+        updated = [...current, langId];
+      }
+      return { ...prev, allowedLanguages: updated };
+    });
+    // If selected language was disabled, switch to first active
+    if (selectedLanguage === langId) {
+      const remaining = (formData.allowedLanguages || []).filter((l) => l !== langId);
+      if (remaining.length > 0) {
+        setSelectedLanguage(remaining[0]);
+      }
+    }
+  };
+
+  // Live function signature computation for interactive preview
+  const previewSignature = useMemo(() => {
+    const fnName = (formData.functionConfig?.functionName || 'solve').trim();
+    const retType = (formData.functionConfig?.returnType || 'int').trim();
+    const params = structuredParams;
+
+    switch (previewLang) {
+      case 'cpp': {
+        const pList = params.length > 0 ? params.map((p) => `${p.type || 'int'} ${p.name || 'arg'}`).join(', ') : 'vector<int>& nums';
+        return `${retType} ${fnName}(${pList});`;
+      }
+      case 'python': {
+        const pList = params.length > 0 ? params.map((p) => `${p.name || 'arg'}: list[int]`).join(', ') : 'nums: list[int]';
+        return `def ${fnName}(self, ${pList}) -> ${retType}:`;
+      }
+      case 'java': {
+        const pList = params.length > 0 ? params.map((p) => `${(p.type || '').includes('vector') ? 'int[]' : (p.type || 'int')} ${p.name || 'arg'}`).join(', ') : 'int[] nums';
+        const javaRet = retType.includes('vector') ? 'int[]' : retType;
+        return `public ${javaRet} ${fnName}(${pList});`;
+      }
+      case 'javascript': {
+        const pList = params.length > 0 ? params.map((p) => p.name || 'arg').join(', ') : 'nums';
+        return `function ${fnName}(${pList});`;
+      }
+      case 'c': {
+        const pList = params.length > 0 ? params.map((p) => `${p.type || 'int*'} ${p.name || 'arg'}`).join(', ') : 'int* nums, int numsSize';
+        const cRet = retType.includes('vector') ? 'int*' : retType;
+        return `${cRet} ${fnName}(${pList});`;
+      }
+      default:
+        return `${retType} ${fnName}(...);`;
+    }
+  }, [formData.functionConfig, structuredParams, previewLang]);
+
   // Auto-generate starter & harness templates from Function Signature
   const handleGenerateFromSignature = () => {
-    const fnName = formData.functionConfig.functionName.trim() || 'solve';
-    const retType = formData.functionConfig.returnType.trim() || 'int';
-    const params = formData.functionConfig.parameters.trim() || 'vector<int>& nums';
+    const fnName = formData.functionConfig?.functionName?.trim() || 'solve';
+    const retType = formData.functionConfig?.returnType?.trim() || 'int';
+    const params = formData.functionConfig?.parameters || 'vector<int>& nums';
 
-    const generatedStarter = {
-      cpp: `#include <vector>\n#include <string>\nusing namespace std;\n\nclass Solution {\npublic:\n    ${retType} ${fnName}(${params}) {\n        // Implement solution here\n        return 0;\n    }\n};\n`,
-      python: `class Solution:\n    def ${fnName}(self, nums: list[int]) -> int:\n        # Implement solution here\n        return 0\n`,
-      java: `import java.util.*;\n\nclass Solution {\n    public ${retType} ${fnName}(int[] nums) {\n        // Implement solution here\n        return 0;\n    }\n}\n`,
-      javascript: `/**\n * @return {${retType}}\n */\nfunction ${fnName}(nums) {\n    // Implement solution here\n    return 0;\n}\n`,
-      c: `${retType} ${fnName}(int* nums, int numsSize) {\n    // Implement solution here\n    return 0;\n}\n`,
-    };
-
-    const generatedHarness = {
-      cpp: `#include <iostream>\n#include <vector>\n#include <sstream>\n#include <string>\nusing namespace std;\n\n// __STUDENT_CODE__\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    string line;\n    if (getline(cin, line)) {\n        stringstream ss(line);\n        vector<int> nums;\n        int val;\n        while (ss >> val) nums.push_back(val);\n        Solution sol;\n        cout << sol.${fnName}(nums) << "\\n";\n    }\n    return 0;\n}\n`,
-      python: `import sys\n\n# __STUDENT_CODE__\n\ndef _main():\n    raw = sys.stdin.read().split()\n    if not raw: return\n    sol = Solution()\n    print(sol.${fnName}([int(x) for x in raw]))\n\nif __name__ == '__main__':\n    _main()\n`,
-      java: `import java.util.*;\n\n// __STUDENT_CODE__\n\npublic class Solution {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        List<Integer> list = new ArrayList<>();\n        while (sc.hasNextInt()) list.add(sc.nextInt());\n        int[] nums = new int[list.size()];\n        for (int i=0; i<list.size(); i++) nums[i] = list.get(i);\n        Solution sol = new Solution();\n        System.out.println(sol.${fnName}(nums));\n    }\n}\n`,
-    };
+    const { starterTemplates: genStarter, harnessTemplates: genHarness } = generateTemplatesFromSignature({
+      functionName: fnName,
+      returnType: retType,
+      parameters: params,
+    });
 
     setFormData((prev) => ({
       ...prev,
-      starterTemplates: { ...prev.starterTemplates, ...generatedStarter },
-      harnessTemplates: { ...prev.harnessTemplates, ...generatedHarness },
+      starterTemplates: { ...prev.starterTemplates, ...genStarter },
+      harnessTemplates: { ...prev.harnessTemplates, ...genHarness },
     }));
+    setModeStarterTemplates((prev) => ({
+      ...prev,
+      function: { ...(prev.function || {}), ...genStarter },
+    }));
+    setGenerateNotice('Boilerplate starter code and test harnesses regenerated from function signature.');
+    setTimeout(() => setGenerateNotice(null), 4000);
   };
 
   // Safe navigation back
@@ -407,8 +525,10 @@ export default function AdminProblemEditor({
         difficulty: formData.difficulty.toLowerCase(),
         codingMode: formData.codingMode.toLowerCase(),
         accessScope: formData.accessScope.toLowerCase(),
+        allowedLanguages: formData.allowedLanguages,
         starterTemplates: formData.starterTemplates,
         harnessTemplates: formData.harnessTemplates,
+        functionConfig: formData.codingMode === 'function' ? formData.functionConfig : undefined,
         testCases: testCasesPayload,
         version: formData.version,
       };
@@ -977,18 +1097,59 @@ export default function AdminProblemEditor({
                 )}
               </div>
 
+              {/* Language Enablement Toggles */}
+              <div className="language-selector-section" data-testid="language-selector-section">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                  <label className="editor-label" style={{ margin: 0 }}>
+                    Enabled Problem Languages ({formData.allowedLanguages?.length || 0} / {SUPPORTED_LANGUAGES.length})
+                  </label>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                    Select which programming languages candidates may submit in
+                  </span>
+                </div>
+                <div className="language-toggles-grid" data-testid="language-toggles-grid">
+                  {SUPPORTED_LANGUAGES.map((lang) => {
+                    const isEnabled = (formData.allowedLanguages || []).includes(lang.id);
+                    return (
+                      <button
+                        key={lang.id}
+                        type="button"
+                        onClick={() => handleToggleLanguage(lang.id)}
+                        className={`lang-toggle-card ${isEnabled ? 'enabled' : 'disabled'}`}
+                        data-testid={`toggle-lang-${lang.id}`}
+                      >
+                        <div className="toggle-indicator">
+                          {isEnabled ? <CheckCircle2 size={15} color="#38bdf8" /> : <div className="toggle-dot-off" />}
+                        </div>
+                        <span className="lang-toggle-name">{lang.label}</span>
+                        <span className="lang-toggle-badge">{lang.ext.toUpperCase()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {validationErrors.allowedLanguages && (
+                  <span className="form-error-msg" data-testid="error-allowed-languages" style={{ display: 'block', marginTop: '6px' }}>
+                    {validationErrors.allowedLanguages}
+                  </span>
+                )}
+              </div>
+
               <div className="lang-tabs-bar">
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.id}
-                    className={`lang-tab-btn ${selectedLanguage === lang.id ? 'active' : ''}`}
-                    onClick={() => setSelectedLanguage(lang.id)}
-                    type="button"
-                    data-testid={`lang-tab-${lang.id}`}
-                  >
-                    {lang.label}
-                  </button>
-                ))}
+                {SUPPORTED_LANGUAGES.map((lang) => {
+                  const isEnabled = (formData.allowedLanguages || []).includes(lang.id);
+                  return (
+                    <button
+                      key={lang.id}
+                      className={`lang-tab-btn ${selectedLanguage === lang.id ? 'active' : ''} ${!isEnabled ? 'disabled-tab' : ''}`}
+                      onClick={() => setSelectedLanguage(lang.id)}
+                      type="button"
+                      data-testid={`lang-tab-${lang.id}`}
+                    >
+                      {lang.label}
+                      {!isEnabled && <span style={{ fontSize: '0.7rem', color: '#64748b', marginLeft: '4px' }}>(Disabled)</span>}
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="template-editor-wrap">
@@ -1073,7 +1234,7 @@ export default function AdminProblemEditor({
                           data-testid="input-function-name"
                         />
                         {validationErrors.functionName && (
-                          <span className="form-error-msg">{validationErrors.functionName}</span>
+                          <span className="form-error-msg" data-testid="error-function-name">{validationErrors.functionName}</span>
                         )}
                       </div>
 
@@ -1089,13 +1250,16 @@ export default function AdminProblemEditor({
                             })
                           }
                           placeholder="e.g. int, vector<int>, string, bool"
-                          className="editor-input font-mono"
+                          className={`editor-input font-mono ${validationErrors.returnType ? 'invalid' : ''}`}
                           data-testid="input-return-type"
                         />
+                        {validationErrors.returnType && (
+                          <span className="form-error-msg" data-testid="error-return-type">{validationErrors.returnType}</span>
+                        )}
                       </div>
 
                       <div className="editor-form-group">
-                        <label className="editor-label">Parameters</label>
+                        <label className="editor-label">Parameters (String or Structured)</label>
                         <input
                           type="text"
                           value={formData.functionConfig.parameters}
@@ -1112,7 +1276,103 @@ export default function AdminProblemEditor({
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                    {/* Structured Parameters Breakdown */}
+                    <div className="params-builder-container" data-testid="params-builder-container">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f8fafc' }}>
+                          Structured Parameters ({structuredParams.length})
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-add-param"
+                          onClick={handleAddParameter}
+                          data-testid="btn-add-parameter"
+                        >
+                          <Plus size={13} /> Add Parameter
+                        </button>
+                      </div>
+
+                      {structuredParams.length > 0 && (
+                        <div>
+                          <div className="params-table-header">
+                            <span style={{ flex: 1 }}>Parameter Type</span>
+                            <span style={{ flex: 1 }}>Parameter Name</span>
+                            <span style={{ width: '38px', textAlign: 'center' }}>Del</span>
+                          </div>
+                          {structuredParams.map((p, idx) => (
+                            <div key={p.id || idx} className="param-row" data-testid={`param-row-${idx}`}>
+                              <input
+                                type="text"
+                                value={p.type}
+                                onChange={(e) => handleUpdateParameter(idx, 'type', e.target.value)}
+                                placeholder="e.g. vector<int>&, int"
+                                className="param-input"
+                                style={{ flex: 1 }}
+                                data-testid={`param-type-input-${idx}`}
+                              />
+                              <input
+                                type="text"
+                                value={p.name}
+                                onChange={(e) => handleUpdateParameter(idx, 'name', e.target.value)}
+                                placeholder="e.g. nums, target"
+                                className={`param-input ${duplicateParamNames.includes(p.name?.toLowerCase()) ? 'invalid' : ''}`}
+                                style={{ flex: 1 }}
+                                data-testid={`param-name-input-${idx}`}
+                              />
+                              <button
+                                type="button"
+                                className="btn-param-del"
+                                onClick={() => handleRemoveParameter(idx)}
+                                title="Remove parameter"
+                                data-testid={`btn-del-param-${idx}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {duplicateParamNames.length > 0 && (
+                        <div className="param-duplicate-badge" data-testid="duplicate-param-warning">
+                          <AlertTriangle size={14} /> Duplicate parameter identifier: &quot;{duplicateParamNames.join(', ')}&quot;. Parameter names must be unique.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Live Multi-Language Signature Preview */}
+                    <div className="sig-preview-card" data-testid="signature-preview-card">
+                      <div className="sig-preview-header">
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Code2 size={14} color="#38bdf8" /> Live Multi-Language Signature Preview
+                        </span>
+                        <div className="sig-preview-tabs">
+                          {SUPPORTED_LANGUAGES.map((lang) => (
+                            <button
+                              key={lang.id}
+                              type="button"
+                              className={`sig-preview-tab-btn ${previewLang === lang.id ? 'active' : ''}`}
+                              onClick={() => setPreviewLang(lang.id)}
+                              data-testid={`sig-preview-lang-${lang.id}`}
+                            >
+                              {lang.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <pre className="sig-preview-code" data-testid="sig-preview-display">
+                        {previewSignature}
+                      </pre>
+                    </div>
+
+                    {generateNotice && (
+                      <div className="mode-switch-alert" data-testid="generate-templates-notice" style={{ marginTop: '10px' }}>
+                        <CheckCircle2 size={16} style={{ color: '#4ade80', flexShrink: 0 }} />
+                        <span>{generateNotice}</span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
                       <button
                         className="btn-secondary sm"
                         onClick={handleGenerateFromSignature}

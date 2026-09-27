@@ -151,8 +151,9 @@ const rollbackVersion = async (req, res, next) => {
         coding_mode = $5,
         starter_templates = $6,
         harness_templates = $7,
-        access_scope = $8,
-        version = $9,
+        function_config = $8,
+        access_scope = $9,
+        version = $10,
         is_published = false,
         published_at = NULL,
         review_status = 'draft',
@@ -174,6 +175,7 @@ const rollbackVersion = async (req, res, next) => {
       snapshot.coding_mode,
       JSON.stringify(snapshot.starter_templates || {}),
       JSON.stringify(snapshot.harness_templates || {}),
+      JSON.stringify(snapshot.function_config || {}),
       snapshot.access_scope || 'contest_private',
       newVersionNum,
     ]);
@@ -210,8 +212,8 @@ const rollbackVersion = async (req, res, next) => {
     const summary = changeSummary || `Rolled back from v${currentVersionNum} to v${targetVersion}`;
     await client.query(
       `INSERT INTO problem_versions (
-        problem_id, version_number, title, description, difficulty, coding_mode, starter_templates, harness_templates, access_scope, test_cases_snapshot, validation_config_snapshot, change_summary, source_action, created_by, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'rollback', $13, CURRENT_TIMESTAMP)`,
+        problem_id, version_number, title, description, difficulty, coding_mode, starter_templates, harness_templates, function_config, access_scope, test_cases_snapshot, validation_config_snapshot, change_summary, source_action, created_by, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'rollback', $14, CURRENT_TIMESTAMP)`,
       [
         problemId,
         newVersionNum,
@@ -221,6 +223,7 @@ const rollbackVersion = async (req, res, next) => {
         snapshot.coding_mode,
         JSON.stringify(snapshot.starter_templates || {}),
         JSON.stringify(snapshot.harness_templates || {}),
+        JSON.stringify(snapshot.function_config || {}),
         snapshot.access_scope,
         JSON.stringify(targetTestCases),
         JSON.stringify(snapshot.validation_config_snapshot || {}),

@@ -10,7 +10,8 @@ const { canManageResource } = require('../services/contestService');
  */
 const createProblem = async (req, res, next) => {
   try {
-    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope, testCases } = req.body;
+    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, functionConfig, accessScope, testCases } = req.body;
+    const allowedLanguages = req.body.allowedLanguages !== undefined ? req.body.allowedLanguages : req.body.allowed_languages;
     const createdBy = req.user.id;
 
     // Role-based Access Scope Enforcing:
@@ -36,18 +37,20 @@ const createProblem = async (req, res, next) => {
       codingMode,
       starterTemplates,
       harnessTemplates,
+      functionConfig,
+      allowedLanguages,
       accessScope: effectiveScope,
       createdBy,
       testCases,
     }, req.user, req);
 
-    return res.status(201).json({
-      message: 'Problem created successfully',
-      problem,
-    });
-  } catch (error) {
-    next(error);
-  }
+  return res.status(201).json({
+    message: 'Problem created successfully',
+    problem,
+  });
+} catch (error) {
+  next(error);
+}
 };
 
 /**
@@ -254,7 +257,8 @@ const getSavedProblems = async (req, res, next) => {
 const updateProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope, expectedVersion, version, testCases } = req.body;
+    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, functionConfig, accessScope, expectedVersion, version, testCases } = req.body;
+    const allowedLanguages = req.body.allowedLanguages !== undefined ? req.body.allowedLanguages : req.body.allowed_languages;
 
     const existingProblem = await ProblemModel.findProblemById(id);
     if (!existingProblem) {
@@ -293,10 +297,10 @@ const updateProblem = async (req, res, next) => {
       codingMode,
       starterTemplates,
       harnessTemplates,
+      functionConfig,
+      allowedLanguages,
       accessScope: effectiveScope,
-      // Pass testCases for atomic sample test case replacement in edit mode.
-      // updateProblemWithSafety extracts this separately from the main problem fields.
-      testCases: Array.isArray(testCases) ? testCases : undefined,
+      testCases,
     }, req.user, req, expVer);
 
     if (updateResult && updateResult.conflict) {

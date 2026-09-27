@@ -17,6 +17,7 @@ class ProblemLifecycleModel {
         coding_mode AS "codingMode",
         starter_templates AS "starterTemplates",
         harness_templates AS "harnessTemplates",
+        function_config AS "functionConfig",
         access_scope AS "accessScope",
         test_cases_snapshot AS "testCasesSnapshot",
         validation_config_snapshot AS "validationConfigSnapshot",
