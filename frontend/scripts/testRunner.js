@@ -37,6 +37,10 @@ const SUITE_DEFINITIONS = {
   admin_users: { file: 'test_admin_phase3_users.js', name: 'Admin User Management & Role Governance (Phase 7.3)', tags: ['admin', 'users', 'fast'] },
   admin_problems: { file: 'test_admin_phase4_1_problems_ui.js', name: 'Admin Problem Management Architecture (Phase 7.4.1)', tags: ['admin', 'problems', 'fast'] },
   admin_problem_editor: { file: 'test_admin_phase4_3_editor_ui.js', name: 'Admin Shared Problem Editor Architecture (Phase 7.4.3)', tags: ['admin', 'problems', 'editor', 'fast'] },
+  admin_test_cases: { file: 'test_admin_phase4_6_test_cases_ui.js', name: 'Admin Test Case Management Frontend Logic (Phase 7.4.6)', tags: ['admin', 'problems', 'testcases', 'fast'] },
+  admin_coding_mode: { file: 'test_admin_phase4_7_coding_mode_ui.js', name: 'Admin Coding Mode Configuration Frontend Logic (Phase 7.4.7)', tags: ['admin', 'problems', 'codingmode', 'fast'] },
+  admin_languages: { file: 'test_admin_phase4_8_language_dsl_ui.js', name: 'Admin Languages & Function/DSL Frontend Logic (Phase 7.4.8)', tags: ['admin', 'problems', 'dsl', 'fast'] },
+  admin_preview_publish: { file: 'test_admin_phase4_9_preview_publish_ui.js', name: 'Admin Preview / Draft / Publish Frontend Logic (Phase 7.4.9)', tags: ['admin', 'problems', 'publish', 'fast'] },
 };
 
 const CATEGORIES = {
@@ -48,8 +52,8 @@ const CATEGORIES = {
   profile: ['profile', 'skills_ui'],
   skills_ui: ['skills_ui'],
   submissions: ['submissions', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui'],
-  admin: ['admin_shell', 'admin_dashboard', 'admin_users', 'admin_problems', 'admin_problem_editor'],
-  fast: ['nav', 'auth', 'dashboard', 'profile', 'skills_ui', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui', 'master_correction_ui', 'phase6_ui', 'admin_shell', 'admin_dashboard', 'admin_users', 'admin_problems', 'admin_problem_editor'],
+  admin: ['admin_shell', 'admin_dashboard', 'admin_users', 'admin_problems', 'admin_problem_editor', 'admin_test_cases', 'admin_coding_mode', 'admin_languages', 'admin_preview_publish'],
+  fast: ['nav', 'auth', 'dashboard', 'profile', 'skills_ui', 'submission_detail', 'statistics_ui', 'percentiles_ui', 'distribution_ui', 'comparison_ui', 'master_correction_ui', 'phase6_ui', 'admin_shell', 'admin_dashboard', 'admin_users', 'admin_problems', 'admin_problem_editor', 'admin_test_cases', 'admin_coding_mode', 'admin_languages', 'admin_preview_publish'],
   all: Object.keys(SUITE_DEFINITIONS),
   regression: Object.keys(SUITE_DEFINITIONS),
 };

@@ -8,23 +8,23 @@ class HarnessBuilder {
    * @param {Object} options - { language, codingMode, sourceCode, problem }
    * @returns {string} Executable complete source code
    */
-  static buildExecutableCode({ language, codingMode = 'function', sourceCode, problem = null }) {
+  static buildExecutableCode({ language, codingMode = 'function', sourceCode, problem = null, harnessTemplates: directHarnessTemplates = null }) {
     if (codingMode !== 'function') {
       return sourceCode;
     }
 
     const lang = (language || '').toLowerCase().trim();
-    const harnessTemplates = (problem && problem.harnessTemplates) || (problem && problem.harness_templates) || {};
+    const harnessTemplates = (problem && (problem.harnessTemplates || problem.harness_templates)) || directHarnessTemplates || {};
 
     if (harnessTemplates[lang]) {
       const template = harnessTemplates[lang];
-      // Replace the // __STUDENT_CODE__ (or /* __STUDENT_CODE__ */) placeholder
+      // Replace the __STUDENT_CODE__ (commented or bare) placeholder
       const placeholder = '__STUDENT_CODE__';
       let code;
       if (template.includes(placeholder)) {
-        // Remove the comment wrapper around the placeholder and inject student code safely preserving line separation
+        // Remove the optional comment wrapper around the placeholder and inject student code safely
         code = template.replace(
-          /(?:\/\/|\/\*|#)[^\S\r\n]*__STUDENT_CODE__[^\S\r\n]*(?:\*\/)?/g,
+          /(?:(?:\/\/|\/\*|#)[^\S\r\n]*)?__STUDENT_CODE__[^\S\r\n]*(?:\*\/)?/g,
           `\n${sourceCode}\n`
         );
       } else {
