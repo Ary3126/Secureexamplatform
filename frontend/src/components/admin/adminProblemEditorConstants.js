@@ -34,6 +34,31 @@ export const DEFAULT_HARNESS_TEMPLATES = {
   java: `import java.util.*;\n\n// __STUDENT_CODE__\n\npublic class Solution {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        List<Integer> list = new ArrayList<>();\n        while (sc.hasNextInt()) {\n            list.add(sc.nextInt());\n        }\n        int[] nums = new int[list.size()];\n        for (int i = 0; i < list.size(); i++) nums[i] = list.get(i);\n        Solution sol = new Solution();\n        System.out.println(sol.solve(nums));\n    }\n}\n`,
 };
 
+export const CODING_MODES = [
+  {
+    id: 'full_program',
+    title: 'Standard OJ (Full Program)',
+    subtitle: 'Competitive Programming / Raw I/O Model',
+    description: 'Candidate writes a complete program with a main() entry point. Candidate code reads raw standard input (cin/stdin/Scanner) and writes formatted standard output (cout/stdout/System.out). No harness wrapping is applied.',
+    badge: 'Standard OJ',
+    ioModel: 'Raw standard input & standard output (stdin/stdout)',
+    harnessRequired: false,
+  },
+  {
+    id: 'function',
+    title: 'Function Mode (Solution Class)',
+    subtitle: 'LeetCode / Function Signature Model',
+    description: 'Candidate implements only the requested solution function or class method (e.g., class Solution). The judge automatically compiles the solution wrapped in a server-side test harness that deserializes test case inputs and validates output values.',
+    badge: 'Function Mode',
+    ioModel: 'Automated argument parsing & harness wrapping',
+    harnessRequired: true,
+  },
+];
+
+export function getCodingModeMeta(modeId) {
+  return CODING_MODES.find((m) => m.id === modeId) || CODING_MODES[0];
+}
+
 /**
  * Shared validation logic for problem form payloads
  */
@@ -81,6 +106,16 @@ export function validateProblemForm(data) {
       errors.functionName = 'Function name is required in Function Mode.';
     } else if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(fnName)) {
       errors.functionName = 'Function name must be a valid identifier (alphanumeric and underscores only).';
+    }
+
+    if (data.harnessTemplates && typeof data.harnessTemplates === 'object') {
+      for (const [lang, template] of Object.entries(data.harnessTemplates)) {
+        if (typeof template === 'string' && template.trim().length > 0) {
+          if (!template.includes('__STUDENT_CODE__')) {
+            errors[`harness_${lang}`] = `Harness template for ${lang} must include the // __STUDENT_CODE__ placeholder.`;
+          }
+        }
+      }
     }
   }
 

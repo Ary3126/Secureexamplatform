@@ -107,6 +107,26 @@ const validateUpdateContest = (req, res, next) => {
   next();
 };
 
+const SUPPORTED_LANGUAGES = ['python', 'cpp', 'java', 'javascript', 'c'];
+
+/**
+ * Validate starter and harness template objects
+ */
+const validateTemplates = (templates, fieldName, errors) => {
+  if (templates === undefined || templates === null) return;
+  if (typeof templates !== 'object' || Array.isArray(templates)) {
+    errors.push(`${fieldName} must be a valid key-value object of language templates.`);
+    return;
+  }
+  for (const [lang, code] of Object.entries(templates)) {
+    if (!SUPPORTED_LANGUAGES.includes(lang.toLowerCase())) {
+      errors.push(`Unsupported language "${lang}" in ${fieldName}. Supported languages are: ${SUPPORTED_LANGUAGES.join(', ')}.`);
+    } else if (typeof code !== 'string') {
+      errors.push(`Template for language "${lang}" in ${fieldName} must be a string.`);
+    }
+  }
+};
+
 /**
  * Validate problem creation payload
  */
@@ -141,6 +161,16 @@ const validateCreateProblem = (req, res, next) => {
     if (typeof effectiveAccessScope !== 'string' || !validScopes.includes(effectiveAccessScope.toLowerCase())) {
       errors.push('accessScope must be one of: public, contest_private, class, institution.');
     }
+  }
+
+  const effectiveStarterTemplates = req.body.starterTemplates !== undefined ? req.body.starterTemplates : req.body.starter_templates;
+  if (effectiveStarterTemplates !== undefined) {
+    validateTemplates(effectiveStarterTemplates, 'starterTemplates', errors);
+  }
+
+  const effectiveHarnessTemplates = req.body.harnessTemplates !== undefined ? req.body.harnessTemplates : req.body.harness_templates;
+  if (effectiveHarnessTemplates !== undefined) {
+    validateTemplates(effectiveHarnessTemplates, 'harnessTemplates', errors);
   }
 
   if (errors.length > 0) {
@@ -195,6 +225,16 @@ const validateUpdateProblem = (req, res, next) => {
     if (typeof effectiveAccessScope !== 'string' || !validScopes.includes(effectiveAccessScope.toLowerCase())) {
       errors.push('accessScope must be one of: public, contest_private, class, institution.');
     }
+  }
+
+  const effectiveStarterTemplates = req.body.starterTemplates !== undefined ? req.body.starterTemplates : req.body.starter_templates;
+  if (effectiveStarterTemplates !== undefined) {
+    validateTemplates(effectiveStarterTemplates, 'starterTemplates', errors);
+  }
+
+  const effectiveHarnessTemplates = req.body.harnessTemplates !== undefined ? req.body.harnessTemplates : req.body.harness_templates;
+  if (effectiveHarnessTemplates !== undefined) {
+    validateTemplates(effectiveHarnessTemplates, 'harnessTemplates', errors);
   }
 
   const hasAnyField = (

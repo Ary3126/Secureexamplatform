@@ -22,6 +22,7 @@ import {
   FileText,
   AlertCircle,
   Hash,
+  Info,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 import AdminTestCaseManager from './AdminTestCaseManager';
@@ -48,6 +49,8 @@ import {
   SUPPORTED_LANGUAGES,
   DEFAULT_STARTER_TEMPLATES,
   DEFAULT_HARNESS_TEMPLATES,
+  CODING_MODES,
+  getCodingModeMeta,
   validateProblemForm,
 } from './adminProblemEditorConstants.js';
 
@@ -55,6 +58,8 @@ export {
   SUPPORTED_LANGUAGES,
   DEFAULT_STARTER_TEMPLATES,
   DEFAULT_HARNESS_TEMPLATES,
+  CODING_MODES,
+  getCodingModeMeta,
   validateProblemForm,
 };
 
@@ -75,6 +80,13 @@ export default function AdminProblemEditor({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [validationErrors, setValidationErrors] = useState({});
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
+  const [modeSwitchNotice, setModeSwitchNotice] = useState(null);
+
+  // Per-mode starter templates cache ensuring non-destructive mode switching
+  const [modeStarterTemplates, setModeStarterTemplates] = useState({
+    function: { ...DEFAULT_STARTER_TEMPLATES.function },
+    full_program: { ...DEFAULT_STARTER_TEMPLATES.full_program },
+  });
 
   // Form State Foundation
   const [formData, setFormData] = useState({
@@ -200,6 +212,12 @@ export default function AdminProblemEditor({
             })),
           };
 
+          const activeCodingMode = loadedData.codingMode;
+          setModeStarterTemplates({
+            function: activeCodingMode === 'function' ? { ...loadedData.starterTemplates } : { ...DEFAULT_STARTER_TEMPLATES.function },
+            full_program: activeCodingMode === 'full_program' ? { ...loadedData.starterTemplates } : { ...DEFAULT_STARTER_TEMPLATES.full_program },
+          });
+
           setFormData(loadedData);
           setInitialData(loadedData);
         })
@@ -218,16 +236,60 @@ export default function AdminProblemEditor({
     }
   }, [mode, problemId, token]);
 
-  // Mode switcher handler (updates default templates if starter is unchanged)
-  const handleCodingModeChange = (newMode) => {
-    if (newMode === formData.codingMode) return;
+  // Handle starter code edits preserving per-mode authored code
+  const handleStarterTemplateChange = (lang, newCode) => {
     setFormData((prev) => ({
       ...prev,
-      codingMode: newMode,
       starterTemplates: {
-        ...DEFAULT_STARTER_TEMPLATES[newMode],
+        ...prev.starterTemplates,
+        [lang]: newCode,
       },
     }));
+    setModeStarterTemplates((prev) => ({
+      ...prev,
+      [formData.codingMode]: {
+        ...prev[formData.codingMode],
+        [lang]: newCode,
+      },
+    }));
+  };
+
+  // Reset starter template for a language to mode-specific default
+  const handleResetStarterTemplate = (lang) => {
+    const defaultCode = DEFAULT_STARTER_TEMPLATES[formData.codingMode]?.[lang] || '';
+    handleStarterTemplateChange(lang, defaultCode);
+  };
+
+  // Mode switcher handler with non-destructive preservation
+  const handleCodingModeChange = (newMode) => {
+    if (newMode === formData.codingMode) return;
+
+    const currentMode = formData.codingMode;
+    const currentTemplates = { ...formData.starterTemplates };
+
+    setModeStarterTemplates((prev) => {
+      const updated = {
+        ...prev,
+        [currentMode]: currentTemplates,
+      };
+
+      const targetTemplates = updated[newMode] || { ...DEFAULT_STARTER_TEMPLATES[newMode] };
+
+      setFormData((prevForm) => ({
+        ...prevForm,
+        codingMode: newMode,
+        starterTemplates: targetTemplates,
+      }));
+
+      return updated;
+    });
+
+    setModeSwitchNotice(
+      `Switched to ${newMode === 'function' ? 'Function Mode (Solution Class)' : 'Standard OJ (Full Program)'}. Your previous mode code is preserved.`
+    );
+    setTimeout(() => {
+      setModeSwitchNotice(null);
+    }, 4500);
   };
 
   // Add Example
@@ -526,6 +588,9 @@ export default function AdminProblemEditor({
             data-testid="tab-function-dsl"
           >
             <Sparkles size={16} /> 5. Function Mode & DSL
+            {formData.codingMode !== 'function' && (
+              <span className="tab-pill-mode" data-testid="tab-pill-function-only">Function Only</span>
+            )}
             {validationErrors.functionName && <span className="tab-error-dot" />}
           </button>
 
@@ -767,21 +832,41 @@ export default function AdminProblemEditor({
           {/* SECTION 3: CODING ARCHITECTURE */}
           {activeTab === 'coding_mode' && (
             <div data-testid="section-coding-mode">
-              <h3>3. Coding Architecture & Evaluation Mode</h3>
-              <p className="editor-content-subtitle">
-                Select how candidate code is authored and judged: LeetCode-style Function Mode or Standard Online Judge.
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>3. Coding Architecture & Evaluation Mode</h3>
+                  <p className="editor-content-subtitle" style={{ margin: '4px 0 0 0' }}>
+                    Select how candidate code is authored and evaluated: LeetCode-style Function Mode or Standard Online Judge.
+                  </p>
+                </div>
+                <span className={`mode-pill ${formData.codingMode === 'function' ? 'function-pill' : 'standard-pill'}`} data-testid="active-mode-pill">
+                  {formData.codingMode === 'function' ? 'Function Mode Active' : 'Standard OJ Active'}
+                </span>
+              </div>
+
+              {modeSwitchNotice && (
+                <div className="mode-switch-alert" data-testid="mode-switch-notice">
+                  <CheckCircle2 size={16} style={{ color: '#10b981', flexShrink: 0 }} />
+                  <span>{modeSwitchNotice}</span>
+                </div>
+              )}
 
               <div className="coding-modes-grid">
                 <div
-                  className={`coding-mode-card ${formData.codingMode === 'function' ? 'selected' : ''}`}
+                  className={`coding-mode-card ${formData.codingMode === 'function' ? 'selected function-selected' : ''}`}
                   onClick={() => handleCodingModeChange('function')}
                   data-testid="mode-card-function"
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="mode-card-header">
                     <Code2 size={22} style={{ color: '#c084fc' }} />
                     <span className="mode-title">Function Mode (Solution Class)</span>
-                    {formData.codingMode === 'function' && <span className="mode-active-tag">Active</span>}
+                    {formData.codingMode === 'function' ? (
+                      <span className="mode-active-tag">Active</span>
+                    ) : (
+                      <span className="mode-select-hint">Click to Select</span>
+                    )}
                   </div>
                   <p className="mode-desc">
                     Candidates only author the target method or class logic (e.g. <code>class Solution</code>). The judge harness
@@ -789,20 +874,27 @@ export default function AdminProblemEditor({
                   </p>
                   <ul className="mode-bullets">
                     <li>No boilerplate I/O required from candidates</li>
-                    <li>Automated deserialization & validation</li>
+                    <li>Automated argument parsing & validation</li>
                     <li>Supports C++, Python, Java, JavaScript, and C</li>
+                    <li>Harness templates customizable with <code>// __STUDENT_CODE__</code></li>
                   </ul>
                 </div>
 
                 <div
-                  className={`coding-mode-card ${formData.codingMode === 'full_program' ? 'selected' : ''}`}
+                  className={`coding-mode-card ${formData.codingMode === 'full_program' ? 'selected standard-selected' : ''}`}
                   onClick={() => handleCodingModeChange('full_program')}
                   data-testid="mode-card-full-program"
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="mode-card-header">
                     <Terminal size={22} style={{ color: '#38bdf8' }} />
                     <span className="mode-title">Standard OJ (Full Program)</span>
-                    {formData.codingMode === 'full_program' && <span className="mode-active-tag full">Active</span>}
+                    {formData.codingMode === 'full_program' ? (
+                      <span className="mode-active-tag full">Active</span>
+                    ) : (
+                      <span className="mode-select-hint">Click to Select</span>
+                    )}
                   </div>
                   <p className="mode-desc">
                     Traditional competitive programming workflow (Codeforces / HackerRank style). Candidate writes a standalone
@@ -812,15 +904,47 @@ export default function AdminProblemEditor({
                     <li>Candidate has complete control of standard I/O streams</li>
                     <li>Raw stdin matching and stdout diff verification</li>
                     <li>Direct compilation without harness wrapping</li>
+                    <li>Zero boilerplate overhead, optimal for algorithmic contests</li>
                   </ul>
                 </div>
+              </div>
+
+              {/* Mode Specific Deep-Dive Architecture Box */}
+              <div className="mode-architecture-summary" data-testid="mode-architecture-summary">
+                {formData.codingMode === 'function' ? (
+                  <div className="mode-detail-card function-accent" data-testid="function-mode-architecture-card">
+                    <h4>Function Mode Execution Architecture</h4>
+                    <p>
+                      Candidate submission is merged with the language-specific harness template via <code>HarnessBuilder.buildExecutableCode()</code>.
+                      The driver program reads test-case inputs, deserializes arguments, invokes the student's solution method, and prints results.
+                    </p>
+                    <div className="mode-tags-row">
+                      <span className="tag-pill">Signature DSL: Required</span>
+                      <span className="tag-pill">Harness Template: Active</span>
+                      <span className="tag-pill">I/O Wrapping: Automated</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mode-detail-card standard-accent" data-testid="standard-oj-architecture-card">
+                    <h4>Standard Online Judge Architecture</h4>
+                    <p>
+                      Candidate submission is compiled as a standalone binary/script directly without code injection or harness wrapping.
+                      The test cases feed raw input data via <code>stdin</code> and capture <code>stdout</code> for direct exact diff checking.
+                    </p>
+                    <div className="mode-tags-row">
+                      <span className="tag-pill">Standalone main(): Required</span>
+                      <span className="tag-pill">Harness Template: Disabled</span>
+                      <span className="tag-pill">I/O Streams: Direct stdin/stdout</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="sandbox-security-box">
                 <Shield size={20} style={{ color: '#38bdf8', flexShrink: 0 }} />
                 <div>
                   <strong>Sandboxing & Execution Boundary:</strong> All candidate submissions run in Docker/Process isolation
-                  with strict resource caps (2.0s CPU time, 256MB RAM, 512KB max stdout buffer, non-root user).
+                  with strict resource caps ({formData.timeLimitMs}ms CPU time, {formData.memoryLimitMb}MB RAM, 512KB max stdout buffer, non-root user).
                 </div>
               </div>
             </div>
@@ -833,6 +957,25 @@ export default function AdminProblemEditor({
               <p className="editor-content-subtitle">
                 Configure boilerplate starter code provided to candidates across all supported languages.
               </p>
+
+              {/* Contextual Mode Guidance Banner */}
+              <div className="mode-context-banner" data-testid="starter-code-mode-banner">
+                {formData.codingMode === 'function' ? (
+                  <div>
+                    <span className="badge-fn">Function Mode</span>
+                    <span className="context-text">
+                      Candidates only author the target method or class. Boilerplate standard I/O and deserialization are handled automatically by the platform harness.
+                    </span>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="badge-std">Standard OJ</span>
+                    <span className="context-text">
+                      Candidates write a complete program with <code>main()</code> reading raw standard input (cin/stdin/Scanner) and writing standard output.
+                    </span>
+                  </div>
+                )}
+              </div>
 
               <div className="lang-tabs-bar">
                 {SUPPORTED_LANGUAGES.map((lang) => (
@@ -852,18 +995,11 @@ export default function AdminProblemEditor({
                 <div className="template-editor-toolbar">
                   <span className="editor-lang-badge">
                     Editing Starter Code: <strong>{SUPPORTED_LANGUAGES.find((l) => l.id === selectedLanguage)?.label}</strong>
+                    {' '}({formData.codingMode === 'function' ? 'Function Boilerplate' : 'Full Program'})
                   </span>
                   <button
                     className="btn-subaction"
-                    onClick={() => {
-                      setFormData((prev) => ({
-                        ...prev,
-                        starterTemplates: {
-                          ...prev.starterTemplates,
-                          [selectedLanguage]: DEFAULT_STARTER_TEMPLATES[formData.codingMode][selectedLanguage] || '',
-                        },
-                      }));
-                    }}
+                    onClick={() => handleResetStarterTemplate(selectedLanguage)}
                     type="button"
                     data-testid="btn-reset-template"
                   >
@@ -874,10 +1010,7 @@ export default function AdminProblemEditor({
                 <textarea
                   rows={14}
                   value={formData.starterTemplates[selectedLanguage] || ''}
-                  onChange={(e) => {
-                    const updated = { ...formData.starterTemplates, [selectedLanguage]: e.target.value };
-                    setFormData({ ...formData, starterTemplates: updated });
-                  }}
+                  onChange={(e) => handleStarterTemplateChange(selectedLanguage, e.target.value)}
                   className="editor-textarea font-mono code-box"
                   placeholder={`// Enter ${selectedLanguage} starter template...`}
                   data-testid="input-starter-code"
@@ -895,11 +1028,25 @@ export default function AdminProblemEditor({
               </p>
 
               {formData.codingMode !== 'function' ? (
-                <div className="editor-info-banner">
-                  <Info size={18} style={{ color: '#38bdf8', flexShrink: 0 }} />
-                  <div>
-                    This problem is currently in <strong>Standard OJ (Full Program)</strong> mode. Harness configuration and DSL
-                    function signatures are only evaluated when <strong>Function Mode</strong> is active.
+                <div className="standard-oj-notice" data-testid="standard-oj-harness-notice">
+                  <Terminal size={26} style={{ color: '#38bdf8', flexShrink: 0, marginTop: '2px' }} />
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ margin: '0 0 6px 0', color: '#f8fafc', fontSize: '1rem', fontWeight: 700 }}>
+                      Standard OJ (Full Program) Active
+                    </h4>
+                    <p style={{ margin: '0 0 14px 0', fontSize: '0.86rem', color: '#cbd5e1', lineHeight: '1.5' }}>
+                      In Standard OJ mode, candidate submissions are evaluated as standalone executables with direct
+                      standard input (<code>stdin</code>) and standard output (<code>stdout</code>) streams. Function signatures
+                      and server-side harness injection (<code>harnessBuilder.js</code>) are not utilized for this problem.
+                    </p>
+                    <button
+                      className="btn-secondary sm"
+                      onClick={() => handleCodingModeChange('function')}
+                      type="button"
+                      data-testid="btn-switch-to-function-mode"
+                    >
+                      <Sparkles size={13} /> Switch to Function Mode
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -979,24 +1126,51 @@ export default function AdminProblemEditor({
 
                   {/* Harness Templates View */}
                   <div style={{ marginTop: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
                       <label className="editor-label" style={{ margin: 0 }}>
                         Server-Side Test Harness (<code>harnessBuilder.js</code> integration)
                       </label>
-                      <span className="harness-tag">
-                        Placeholder: <code>// __STUDENT_CODE__</code>
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {((formData.harnessTemplates[selectedLanguage] || '').includes('__STUDENT_CODE__')) ? (
+                          <span className="harness-tag valid" data-testid="harness-valid-badge">
+                            <CheckCircle2 size={12} /> Placeholder <code>__STUDENT_CODE__</code> Active
+                          </span>
+                        ) : (
+                          <span className="harness-tag warning" data-testid="harness-missing-badge">
+                            <AlertTriangle size={12} /> Missing <code>__STUDENT_CODE__</code>
+                          </span>
+                        )}
+
+                        {!((formData.harnessTemplates[selectedLanguage] || '').includes('__STUDENT_CODE__')) && (
+                          <button
+                            className="btn-subaction"
+                            type="button"
+                            onClick={() => {
+                              const current = formData.harnessTemplates[selectedLanguage] || '';
+                              const updated = current + '\n// __STUDENT_CODE__\n';
+                              setFormData({
+                                ...formData,
+                                harnessTemplates: { ...formData.harnessTemplates, [selectedLanguage]: updated },
+                              });
+                            }}
+                            data-testid="btn-insert-placeholder"
+                          >
+                            <Plus size={11} /> Insert Placeholder
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="lang-tabs-bar">
-                      {['python', 'cpp', 'java'].map((langKey) => (
+                      {SUPPORTED_LANGUAGES.map((lang) => (
                         <button
-                          key={langKey}
-                          className={`lang-tab-btn ${selectedLanguage === langKey ? 'active' : ''}`}
-                          onClick={() => setSelectedLanguage(langKey)}
+                          key={lang.id}
+                          className={`lang-tab-btn ${selectedLanguage === lang.id ? 'active' : ''}`}
+                          onClick={() => setSelectedLanguage(lang.id)}
                           type="button"
+                          data-testid={`harness-lang-tab-${lang.id}`}
                         >
-                          {SUPPORTED_LANGUAGES.find((l) => l.id === langKey)?.label}
+                          {lang.label}
                         </button>
                       ))}
                     </div>
