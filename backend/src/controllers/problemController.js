@@ -15,11 +15,19 @@ const createProblem = async (req, res, next) => {
 
     // Role-based Access Scope Enforcing:
     // Only super_admin or contest_admin can publish problems directly to the public bank.
-    // Professor-created problems strictly default to 'contest_private'.
+    // Professor-created problems are strictly restricted to 'contest_private' regardless
+    // of any accessScope value they pass in the request body.
     const isAdmin = req.user && (req.user.role === 'super_admin' || req.user.role === 'contest_admin');
-    const effectiveScope = (accessScope && accessScope.toLowerCase() === 'public')
-      ? 'public'
-      : (isAdmin ? (accessScope || 'public') : 'contest_private');
+    let effectiveScope;
+    if (!isAdmin) {
+      // Professors and other non-admin creators are always restricted to contest_private
+      effectiveScope = 'contest_private';
+    } else {
+      // Admins can set any valid scope; default to 'public' if not specified
+      const requestedScope = accessScope ? accessScope.toLowerCase() : 'public';
+      const validScopes = ['public', 'contest_private', 'class', 'institution'];
+      effectiveScope = validScopes.includes(requestedScope) ? requestedScope : 'public';
+    }
 
     const problem = await ProblemModel.createProblemWithSafety({
       title,
@@ -246,7 +254,7 @@ const getSavedProblems = async (req, res, next) => {
 const updateProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope, expectedVersion, version } = req.body;
+    const { title, description, difficulty, codingMode, starterTemplates, harnessTemplates, accessScope, expectedVersion, version, testCases } = req.body;
 
     const existingProblem = await ProblemModel.findProblemById(id);
     if (!existingProblem) {
@@ -286,6 +294,9 @@ const updateProblem = async (req, res, next) => {
       starterTemplates,
       harnessTemplates,
       accessScope: effectiveScope,
+      // Pass testCases for atomic sample test case replacement in edit mode.
+      // updateProblemWithSafety extracts this separately from the main problem fields.
+      testCases: Array.isArray(testCases) ? testCases : undefined,
     }, req.user, req, expVer);
 
     if (updateResult && updateResult.conflict) {

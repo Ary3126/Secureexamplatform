@@ -565,7 +565,9 @@ class ProblemModel {
   }
 
   /**
-   * Update problem details inside an atomic transaction with row locking, optimistic concurrency, and audit logging
+   * Update problem details inside an atomic transaction with row locking, optimistic concurrency, and audit logging.
+   * Optionally replaces sample test cases if testCases array is provided (Edit Problem workflow).
+   * Hidden/judge test cases are never modified by this method.
    */
   static async updateProblemWithSafety(id, updateData, actor = null, req = null, expectedVersion = null) {
     const client = await db.getClient();
@@ -587,7 +589,39 @@ class ProblemModel {
         }
       }
 
-      const updatedProblem = await ProblemModel.updateProblem(id, updateData, client);
+      // Extract testCases from updateData before passing the rest to updateProblem
+      const { testCases, ...problemFields } = updateData;
+
+      const updatedProblem = await ProblemModel.updateProblem(id, problemFields, client);
+
+      // Atomically replace sample test cases if provided in the update payload.
+      // Only sample (non-hidden) test cases created via the editor are replaced.
+      // Hidden judge test cases (is_hidden = true) are never touched.
+      if (Array.isArray(testCases) && testCases.length > 0) {
+        // Delete only the sample test cases (isSample=true, isHidden=false) for this problem
+        await client.query(
+          `DELETE FROM test_cases WHERE problem_id = $1 AND is_hidden = false`,
+          [id]
+        );
+
+        // Insert new sample test cases
+        for (let i = 0; i < testCases.length; i++) {
+          const tc = testCases[i];
+          await client.query(
+            `INSERT INTO test_cases (problem_id, input_data, expected_output, is_hidden, time_limit_ms, memory_limit_mb, test_order)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              id,
+              tc.inputData || '',
+              tc.expectedOutput || '',
+              false, // always sample/non-hidden for editor-authored test cases
+              tc.timeLimitMs || 2000,
+              tc.memoryLimitMb || 256,
+              tc.testOrder || (i + 1),
+            ]
+          );
+        }
+      }
 
       // Phase 5.9.6: Revoke/supersede open review requests on draft mutation
       await client.query(
@@ -610,6 +644,7 @@ class ProblemModel {
             accessScope: updatedProblem.accessScope,
             version: updatedProblem.version,
             reviewStatus: updatedProblem.reviewStatus,
+            sampleTestCasesUpdated: Array.isArray(testCases) && testCases.length > 0,
           },
           client,
           req,
@@ -627,6 +662,7 @@ class ProblemModel {
       client.release();
     }
   }
+
 
   /**
    * Publish a problem with safety validation gate, version snapshotting, transaction atomicity, and audit logging
