@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ArrowLeft,
   Settings2,
@@ -23,26 +23,27 @@ import {
   AlertCircle,
   Hash,
   Info,
+  UploadCloud,
+  History,
+  Lock,
+  Check,
+  ExternalLink,
+  XCircle,
+  X,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 import AdminTestCaseManager from './AdminTestCaseManager';
 import './adminProblemManagement.css';
 
 /**
- * Shared Admin Problem Editor Architecture (Phase 7.4.3)
+ * Shared Admin Problem Editor Architecture (Phase 7.4.3 - 7.4.9)
  * 
  * Used for both:
  * - Create Mode: /admin/problems/new
  * - Edit Mode: /admin/problems/:id/edit
  * 
- * Reusable Sections:
- * 1. Basic Information (Title, Description, Difficulty, Tags, Constraints)
- * 2. Examples (Input, Output, Explanation)
- * 3. Coding Configuration (Standard OJ vs Function Mode)
- * 4. Language Configuration (Supported languages & starter code templates)
- * 5. Function Mode / DSL Configuration (Function name, return type, parameters, harness templates)
- * 6. Test Case Section Foundation (Sample vs Hidden Test Cases boundary)
- * 7. Execution Configuration (Time limit, Memory limit, Output limit, Versioning & Governance)
+ * Complete Problem Lifecycle:
+ * Draft → Save → Preview → Validate → Publish → Published
  */
 
 import {
@@ -55,6 +56,8 @@ import {
   parseParameterString,
   formatParametersToString,
   generateTemplatesFromSignature,
+  getTabForPublishError,
+  validateForPublish,
 } from './adminProblemEditorConstants.js';
 
 export {
@@ -67,6 +70,8 @@ export {
   parseParameterString,
   formatParametersToString,
   generateTemplatesFromSignature,
+  getTabForPublishError,
+  validateForPublish,
 };
 
 export default function AdminProblemEditor({
@@ -90,6 +95,25 @@ export default function AdminProblemEditor({
   const [generateNotice, setGenerateNotice] = useState(null);
   const [previewLang, setPreviewLang] = useState('cpp');
 
+  // Phase 7.4.9 Preview & Publish State
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewActiveLang, setPreviewActiveLang] = useState('python');
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishErrors, setPublishErrors] = useState(null);
+  const [publishSuccessInfo, setPublishSuccessInfo] = useState(null);
+
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictVersion, setConflictVersion] = useState(null);
+  const [isReloadingConflict, setIsReloadingConflict] = useState(false);
+
+  const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
+  const [versionHistory, setVersionHistory] = useState([]);
+  const [versionHistoryLoading, setVersionHistoryLoading] = useState(false);
+  const [versionHistoryError, setVersionHistoryError] = useState(null);
+
   // Per-mode starter templates cache ensuring non-destructive mode switching
   const [modeStarterTemplates, setModeStarterTemplates] = useState({
     function: { ...DEFAULT_STARTER_TEMPLATES.function },
@@ -109,6 +133,7 @@ export default function AdminProblemEditor({
     memoryLimitMb: 256,
     outputLimitKb: 512,
     version: 1,
+    isPublished: false,
     reviewStatus: 'draft',
     allowedLanguages: SUPPORTED_LANGUAGES.map((l) => l.id),
     functionConfig: {
@@ -138,6 +163,89 @@ export default function AdminProblemEditor({
     return JSON.stringify(formData) !== JSON.stringify(initialData);
   }, [formData, initialData]);
 
+  const fetchProblemDetails = useCallback(async (idStr) => {
+    const res = await fetch(`/api/admin/problems/${idStr}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.message || `Problem #${idStr} not found in database.`);
+    }
+    const json = await res.json();
+    const p = json.data?.problem || json.problem || json;
+    const sampleCases = p.sampleTestCases || [];
+
+    // Reconstitute examples from sampleTestCases if available
+    const loadedExamples = sampleCases.length > 0
+      ? sampleCases.map((tc, idx) => ({
+          id: tc.id || idx + 1,
+          input: tc.inputData || '',
+          output: tc.expectedOutput || '',
+          explanation: tc.explanation || `Sample test case ${idx + 1}`,
+        }))
+      : [
+          {
+            id: 1,
+            input: '5\n1 2 3 4 5',
+            output: '15',
+            explanation: 'Standard sample test case.',
+          },
+        ];
+
+    const loadedData = {
+      title: p.title || '',
+      description: p.description || '',
+      difficulty: p.difficulty || 'medium',
+      codingMode: p.codingMode || p.coding_mode || 'function',
+      accessScope: p.accessScope || p.access_scope || 'public',
+      tags: p.tags || 'algorithms',
+      constraints: p.constraints || '1 <= nums.length <= 10^5\n-10^9 <= nums[i] <= 10^9',
+      timeLimitMs: p.timeLimitMs || 2000,
+      memoryLimitMb: p.memoryLimitMb || 256,
+      outputLimitKb: 512,
+      version: p.version || 1,
+      isPublished: p.isPublished !== undefined ? p.isPublished : (p.is_published !== undefined ? p.is_published : false),
+      reviewStatus: p.reviewStatus || p.review_status || 'draft',
+      allowedLanguages: p.allowedLanguages || p.allowed_languages || (
+        p.starterTemplates || p.starter_templates
+          ? Object.keys(p.starterTemplates || p.starter_templates).filter((k) => SUPPORTED_LANGUAGES.some((sl) => sl.id === k))
+          : SUPPORTED_LANGUAGES.map((l) => l.id)
+      ),
+      functionConfig: p.functionConfig || p.function_config || {
+        functionName: 'solve',
+        returnType: 'int',
+        parameters: 'vector<int>& nums',
+      },
+      examples: loadedExamples,
+      starterTemplates: {
+        ...DEFAULT_STARTER_TEMPLATES[p.codingMode || 'function'],
+        ...(p.starterTemplates || p.starter_templates || {}),
+      },
+      harnessTemplates: {
+        ...DEFAULT_HARNESS_TEMPLATES,
+        ...(p.harnessTemplates || p.harness_templates || {}),
+      },
+      testCases: loadedExamples.map((ex, i) => ({
+        id: ex.id || `tc-${i + 1}`,
+        inputData: ex.input || '',
+        expectedOutput: ex.output || '',
+        isHidden: false,
+        isSample: true,
+        testOrder: i + 1,
+      })),
+    };
+
+    const activeCodingMode = loadedData.codingMode;
+    setModeStarterTemplates({
+      function: activeCodingMode === 'function' ? { ...loadedData.starterTemplates } : { ...DEFAULT_STARTER_TEMPLATES.function },
+      full_program: activeCodingMode === 'full_program' ? { ...loadedData.starterTemplates } : { ...DEFAULT_STARTER_TEMPLATES.full_program },
+    });
+
+    setFormData(loadedData);
+    setInitialData(loadedData);
+    return loadedData;
+  }, [token]);
+
   // Load problem details if in edit mode
   useEffect(() => {
     if (mode === 'edit') {
@@ -152,89 +260,7 @@ export default function AdminProblemEditor({
       setLoading(true);
       setError(null);
 
-      fetch(`/api/admin/problems/${idStr}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then(async (res) => {
-          if (!res.ok) {
-            const errJson = await res.json().catch(() => ({}));
-            throw new Error(errJson.message || `Problem #${problemId} not found in database.`);
-          }
-          return res.json();
-        })
-        .then((json) => {
-          if (!isMounted) return;
-          const p = json.data?.problem || json.problem || json;
-          const sampleCases = p.sampleTestCases || [];
-
-          // Reconstitute examples from sampleTestCases if available
-          const loadedExamples = sampleCases.length > 0
-            ? sampleCases.map((tc, idx) => ({
-                id: tc.id || idx + 1,
-                input: tc.inputData || '',
-                output: tc.expectedOutput || '',
-                explanation: tc.explanation || `Sample test case ${idx + 1}`,
-              }))
-            : [
-                {
-                  id: 1,
-                  input: '5\n1 2 3 4 5',
-                  output: '15',
-                  explanation: 'Standard sample test case.',
-                },
-              ];
-
-          const loadedData = {
-            title: p.title || '',
-            description: p.description || '',
-            difficulty: p.difficulty || 'medium',
-            codingMode: p.codingMode || p.coding_mode || 'function',
-            accessScope: p.accessScope || p.access_scope || 'public',
-            tags: p.tags || 'algorithms',
-            constraints: p.constraints || '1 <= nums.length <= 10^5\n-10^9 <= nums[i] <= 10^9',
-            timeLimitMs: p.timeLimitMs || 2000,
-            memoryLimitMb: p.memoryLimitMb || 256,
-            outputLimitKb: 512,
-            version: p.version || 1,
-            reviewStatus: p.reviewStatus || p.review_status || 'draft',
-            allowedLanguages: p.allowedLanguages || p.allowed_languages || (
-              p.starterTemplates || p.starter_templates
-                ? Object.keys(p.starterTemplates || p.starter_templates).filter((k) => SUPPORTED_LANGUAGES.some((sl) => sl.id === k))
-                : SUPPORTED_LANGUAGES.map((l) => l.id)
-            ),
-            functionConfig: p.functionConfig || p.function_config || {
-              functionName: 'solve',
-              returnType: 'int',
-              parameters: 'vector<int>& nums',
-            },
-            examples: loadedExamples,
-            starterTemplates: {
-              ...DEFAULT_STARTER_TEMPLATES[p.codingMode || 'function'],
-              ...(p.starterTemplates || p.starter_templates || {}),
-            },
-            harnessTemplates: {
-              ...DEFAULT_HARNESS_TEMPLATES,
-              ...(p.harnessTemplates || p.harness_templates || {}),
-            },
-            testCases: loadedExamples.map((ex, i) => ({
-              id: ex.id || `tc-${i + 1}`,
-              inputData: ex.input || '',
-              expectedOutput: ex.output || '',
-              isHidden: false,
-              isSample: true,
-              testOrder: i + 1,
-            })),
-          };
-
-          const activeCodingMode = loadedData.codingMode;
-          setModeStarterTemplates({
-            function: activeCodingMode === 'function' ? { ...loadedData.starterTemplates } : { ...DEFAULT_STARTER_TEMPLATES.function },
-            full_program: activeCodingMode === 'full_program' ? { ...loadedData.starterTemplates } : { ...DEFAULT_STARTER_TEMPLATES.full_program },
-          });
-
-          setFormData(loadedData);
-          setInitialData(loadedData);
-        })
+      fetchProblemDetails(idStr)
         .catch((err) => {
           if (isMounted) setError(err.message);
         })
@@ -248,7 +274,7 @@ export default function AdminProblemEditor({
       setInitialData({ ...formData });
       setLoading(false);
     }
-  }, [mode, problemId, token]);
+  }, [mode, problemId, fetchProblemDetails]);
 
   // Handle starter code edits preserving per-mode authored code
   const handleStarterTemplateChange = (lang, newCode) => {
@@ -480,14 +506,14 @@ export default function AdminProblemEditor({
     }
   };
 
-  // Save Problem Action
-  const handleSave = async () => {
+  // Core Save Problem Logic (Phase 7.4.9)
+  const performSave = async () => {
     // 1. Run client-side validation
     const validation = validateProblemForm(formData);
     setValidationErrors(validation.errors);
     if (!validation.isValid) {
       setError('Please resolve the highlighted validation errors before saving.');
-      return;
+      return { success: false, validationError: true };
     }
 
     setIsSaving(true);
@@ -531,6 +557,7 @@ export default function AdminProblemEditor({
         functionConfig: formData.codingMode === 'function' ? formData.functionConfig : undefined,
         testCases: testCasesPayload,
         version: formData.version,
+        isPublished: formData.isPublished || false,
       };
 
       const res = await fetch(endpoint, {
@@ -545,8 +572,11 @@ export default function AdminProblemEditor({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (res.status === 409) {
+          const conflictVer = json.currentVersion || (formData.version + 1);
+          setConflictVersion(conflictVer);
+          setShowConflictModal(true);
           throw new Error(
-            `Optimistic Concurrency Conflict: Problem version (v${formData.version}) has been superseded by another administrator (v${json.currentVersion || 'latest'}). Please reload to resolve.`
+            `Optimistic Concurrency Conflict: Problem version (v${formData.version}) has been superseded by another administrator (v${conflictVer}). Please reload to resolve.`
           );
         }
         throw new Error(json.message || `Failed to ${mode === 'edit' ? 'update' : 'create'} problem.`);
@@ -554,20 +584,217 @@ export default function AdminProblemEditor({
 
       setSaveSuccess(true);
       const savedProblem = json.problem || json.data?.problem || json;
-      if (savedProblem && savedProblem.version) {
-        setFormData((prev) => ({ ...prev, version: savedProblem.version }));
-      }
-      setInitialData({ ...formData, version: savedProblem?.version || formData.version });
+      const nextVersion = savedProblem?.version || (mode === 'edit' ? formData.version + 1 : 1);
+      const nextPublished = savedProblem?.isPublished !== undefined ? savedProblem.isPublished : false;
+      const nextReviewStatus = savedProblem?.reviewStatus || 'draft';
+
+      const updatedState = {
+        ...formData,
+        version: nextVersion,
+        isPublished: nextPublished,
+        reviewStatus: nextReviewStatus,
+      };
+      setFormData(updatedState);
+      setInitialData(updatedState);
 
       if (onSaved) {
         onSaved(savedProblem);
       }
 
       setTimeout(() => setSaveSuccess(false), 3500);
+      return { success: true, problem: savedProblem };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Save Problem Action
+  const handleSave = async () => {
+    await performSave();
+  };
+
+  // Phase 7.4.9 Preview Handler: student-facing problem representation with strictly zero hidden test leakage
+  const handleOpenPreview = async () => {
+    const activeLangs = (formData.allowedLanguages && formData.allowedLanguages.length > 0)
+      ? formData.allowedLanguages
+      : SUPPORTED_LANGUAGES.map((l) => l.id);
+    const initialLang = activeLangs.includes(selectedLanguage) ? selectedLanguage : activeLangs[0];
+    setPreviewActiveLang(initialLang);
+    setPreviewLoading(true);
+    setIsPreviewOpen(true);
+
+    // If already saved in edit mode and clean, attempt fetch from /api/problems/:id/preview
+    if (mode === 'edit' && problemId && !isDirty) {
+      try {
+        const res = await fetch(`/api/problems/${problemId}/preview`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setPreviewData(json);
+          setPreviewLoading(false);
+          return;
+        }
+      } catch (err) {
+        // Fallback to local form data representation
+      }
+    }
+
+    // Client-side preview representation based on current authored form state
+    const sampleCases = (formData.testCases && formData.testCases.length > 0)
+      ? formData.testCases
+          .filter((tc) => tc.isSample || !tc.isHidden)
+          .map((tc, idx) => ({
+            id: tc.id || idx + 1,
+            inputData: tc.inputData || '',
+            expectedOutput: tc.expectedOutput || '',
+            explanation: tc.explanation || `Sample test case ${idx + 1}`,
+          }))
+      : formData.examples.map((ex, idx) => ({
+          id: ex.id || idx + 1,
+          inputData: ex.input || '',
+          expectedOutput: ex.output || '',
+          explanation: ex.explanation || `Sample test case ${idx + 1}`,
+        }));
+
+    setPreviewData({
+      id: problemId || 'DRAFT',
+      title: formData.title || 'Untitled Problem',
+      description: formData.description || 'No description provided.',
+      difficulty: formData.difficulty || 'medium',
+      codingMode: formData.codingMode || 'function',
+      constraints: formData.constraints || '',
+      allowedLanguages: activeLangs,
+      starterTemplates: formData.starterTemplates || {},
+      functionConfig: formData.functionConfig || {},
+      sampleTestCases: sampleCases,
+      reviewStatus: formData.reviewStatus || 'draft',
+      isPublished: formData.isPublished || false,
+    });
+    setPreviewLoading(false);
+  };
+
+  // Phase 7.4.9 Publish Handler: validation gate, save draft if modified, POST /api/problems/:id/publish
+  const handleAttemptPublish = async () => {
+    // 1. Client-side pre-validation
+    const clientVal = validateForPublish(formData);
+    if (!clientVal.isValid) {
+      setPublishErrors(clientVal.errors);
+      return;
+    }
+
+    setIsPublishing(true);
+    setPublishErrors(null);
+    setError(null);
+
+    try {
+      // 2. Ensure problem is saved first if dirty or create mode
+      let targetId = problemId;
+      if (isDirty || mode === 'create' || !targetId) {
+        const saveRes = await performSave();
+        if (!saveRes.success) {
+          setIsPublishing(false);
+          return;
+        }
+        targetId = saveRes.problem?.id || problemId;
+      }
+
+      if (!targetId) {
+        throw new Error('Problem must be saved before it can be published.');
+      }
+
+      // 3. Call backend publication validation gate API
+      const res = await fetch(`/api/problems/${targetId}/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 422) {
+          setPublishErrors(json.errors || [json.message || 'Publication validation failed.']);
+          return;
+        }
+        if (res.status === 409) {
+          const conflictVer = json.currentVersion || (formData.version + 1);
+          setConflictVersion(conflictVer);
+          setShowConflictModal(true);
+          throw new Error(json.message || 'Optimistic concurrency conflict during publication.');
+        }
+        throw new Error(json.message || `Failed to publish problem #${targetId}.`);
+      }
+
+      // 4. Success state update
+      const pubProblem = json.problem || {};
+      const publishedVersion = json.version || pubProblem.version || formData.version;
+
+      const publishedState = {
+        ...formData,
+        isPublished: true,
+        reviewStatus: 'published',
+        version: publishedVersion,
+      };
+      setFormData(publishedState);
+      setInitialData(publishedState);
+
+      setPublishSuccessInfo({
+        version: publishedVersion,
+        problemId: targetId,
+        publishedAt: pubProblem.publishedAt || new Date().toISOString(),
+      });
+
+      if (onSaved) {
+        onSaved({ ...pubProblem, isPublished: true, reviewStatus: 'published', version: publishedVersion });
+      }
     } catch (err) {
       setError(err.message);
     } finally {
-      setIsSaving(false);
+      setIsPublishing(false);
+    }
+  };
+
+  // Phase 7.4.9 Version History Handler: view immutable snapshots of publications
+  const handleOpenVersionHistory = async () => {
+    if (!problemId) return;
+    setIsVersionHistoryOpen(true);
+    setVersionHistoryLoading(true);
+    setVersionHistoryError(null);
+
+    try {
+      const res = await fetch(`/api/problems/${problemId}/versions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.message || 'Failed to load version history snapshots.');
+      }
+      setVersionHistory(json.versions || json.data || []);
+    } catch (err) {
+      setVersionHistoryError(err.message);
+    } finally {
+      setVersionHistoryLoading(false);
+    }
+  };
+
+  // Phase 7.4.9 Concurrency Conflict Reload Handler: reload latest problem state without silent overwrite
+  const handleConflictReload = async () => {
+    if (!problemId) return;
+    setIsReloadingConflict(true);
+    try {
+      await fetchProblemDetails(problemId);
+      setShowConflictModal(false);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsReloadingConflict(false);
     }
   };
 
@@ -614,6 +841,10 @@ export default function AdminProblemEditor({
               <span className={`editor-mode-badge ${mode}`} data-testid="editor-mode-badge">
                 {mode === 'create' ? 'Create Mode' : 'Edit Mode'}
               </span>
+              <span className={`editor-status-badge ${formData.isPublished ? 'published' : 'draft'}`} data-testid="editor-status-badge">
+                {formData.isPublished ? <Check size={12} /> : <Lock size={12} />}
+                {formData.isPublished ? 'Published' : 'Draft'}
+              </span>
               {mode === 'edit' && (
                 <span className="editor-version-badge" data-testid="editor-version-badge">
                   v{formData.version}
@@ -638,8 +869,30 @@ export default function AdminProblemEditor({
 
           <button
             className="btn-secondary"
+            onClick={handleOpenPreview}
+            disabled={isSaving || isPublishing}
+            data-testid="editor-preview-btn"
+            title="Preview student-facing problem statement and sample test cases"
+          >
+            <Eye size={15} /> Preview
+          </button>
+
+          {mode === 'edit' && (
+            <button
+              className="btn-secondary"
+              onClick={handleOpenVersionHistory}
+              disabled={isSaving || isPublishing}
+              data-testid="editor-versions-btn"
+              title="View historical publication snapshots"
+            >
+              <History size={15} /> Versions
+            </button>
+          )}
+
+          <button
+            className="btn-secondary"
             onClick={handleAttemptBack}
-            disabled={isSaving}
+            disabled={isSaving || isPublishing}
             data-testid="editor-cancel-btn"
           >
             Cancel
@@ -648,10 +901,20 @@ export default function AdminProblemEditor({
           <button
             className="btn-primary"
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || isPublishing}
             data-testid="editor-save-btn"
           >
-            <Save size={15} /> {isSaving ? 'Saving...' : mode === 'create' ? 'Create Problem' : 'Save Changes'}
+            <Save size={15} /> {isSaving ? 'Saving...' : mode === 'create' ? 'Create Problem' : 'Save Draft'}
+          </button>
+
+          <button
+            className="btn-publish"
+            onClick={handleAttemptPublish}
+            disabled={isSaving || isPublishing}
+            data-testid="editor-publish-btn"
+            title="Validate requirements and publish problem to student catalog"
+          >
+            <UploadCloud size={15} /> {isPublishing ? 'Publishing...' : 'Publish'}
           </button>
         </div>
       </header>
@@ -1540,7 +1803,9 @@ export default function AdminProblemEditor({
                 <div className="governance-grid">
                   <div className="gov-item">
                     <span className="gov-label">Lifecycle Status</span>
-                    <span className="gov-val status-badge draft">{formData.reviewStatus.toUpperCase()}</span>
+                    <span className={`gov-val status-badge ${formData.isPublished ? 'published' : 'draft'}`} data-testid="gov-status-badge">
+                      {formData.isPublished ? 'PUBLISHED' : (formData.reviewStatus || 'DRAFT').toUpperCase()}
+                    </span>
                   </div>
                   <div className="gov-item">
                     <span className="gov-label">Active Version</span>
@@ -1560,6 +1825,408 @@ export default function AdminProblemEditor({
           )}
         </main>
       </div>
+
+      {/* 3. Phase 7.4.9 Student Preview Modal */}
+      {isPreviewOpen && previewData && (
+        <div className="editor-modal-backdrop" data-testid="student-preview-modal">
+          <div className="editor-modal-container preview-modal-dialog">
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Eye size={20} style={{ color: '#38bdf8' }} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#f8fafc' }}>
+                  Student Problem Preview
+                </h3>
+                <span className="preview-badge-student">Student View Simulation</span>
+                <span className={`editor-status-badge ${previewData.isPublished ? 'published' : 'draft'}`}>
+                  {previewData.isPublished ? 'PUBLISHED' : 'DRAFT'}
+                </span>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setIsPreviewOpen(false)}
+                data-testid="preview-close-btn"
+                title="Close Preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto', padding: '20px' }}>
+              {/* Header Info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#f8fafc' }} data-testid="preview-title">
+                  {previewData.title || 'Untitled Problem'}
+                </h2>
+                <span className={`preview-diff-pill ${previewData.difficulty}`} data-testid="preview-difficulty">
+                  {(previewData.difficulty || 'medium').toUpperCase()}
+                </span>
+                <span className="preview-mode-pill" data-testid="preview-coding-mode">
+                  {previewData.codingMode === 'function' ? 'Function Mode' : 'Standard OJ'}
+                </span>
+              </div>
+
+              {/* Problem Description */}
+              <div className="preview-section-card">
+                <h4 className="preview-section-title">Problem Statement</h4>
+                <div
+                  className="preview-markdown-content"
+                  style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: '#e2e8f0' }}
+                  data-testid="preview-description"
+                >
+                  {previewData.description || 'No description provided.'}
+                </div>
+              </div>
+
+              {/* Constraints */}
+              {previewData.constraints && (
+                <div className="preview-section-card" style={{ marginTop: '16px' }}>
+                  <h4 className="preview-section-title">Constraints</h4>
+                  <pre
+                    className="preview-code-block"
+                    style={{ margin: 0, padding: '10px 14px', background: '#090d16', borderRadius: '6px', fontSize: '0.85rem', color: '#fca5a5' }}
+                    data-testid="preview-constraints"
+                  >
+                    {previewData.constraints}
+                  </pre>
+                </div>
+              )}
+
+              {/* Examples / Sample Test Cases */}
+              <div className="preview-section-card" style={{ marginTop: '16px' }}>
+                <h4 className="preview-section-title">Sample Test Cases (Visible to Students)</h4>
+                <p style={{ margin: '0 0 12px 0', fontSize: '0.8rem', color: '#94a3b8' }}>
+                  Strictly non-hidden sample test cases are displayed. Private test cases and judge secrets remain hidden.
+                </p>
+                {(previewData.sampleTestCases && previewData.sampleTestCases.length > 0) ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }} data-testid="preview-sample-cases-list">
+                    {previewData.sampleTestCases.map((tc, idx) => (
+                      <div
+                        key={tc.id || idx}
+                        className="preview-example-item"
+                        style={{ background: '#0b1120', border: '1px solid #1e293b', borderRadius: '8px', padding: '12px 14px' }}
+                        data-testid={`preview-sample-case-${idx}`}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#38bdf8', marginBottom: '8px' }}>
+                          Example {idx + 1}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                          <div>
+                            <span style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Input:</span>
+                            <pre style={{ margin: '4px 0 0 0', padding: '8px 10px', background: '#030712', borderRadius: '4px', fontSize: '0.82rem', color: '#cbd5e1' }}>
+                              {tc.inputData || '(Empty input)'}
+                            </pre>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Expected Output:</span>
+                            <pre style={{ margin: '4px 0 0 0', padding: '8px 10px', background: '#030712', borderRadius: '4px', fontSize: '0.82rem', color: '#86efac' }}>
+                              {tc.expectedOutput || '(Empty output)'}
+                            </pre>
+                          </div>
+                        </div>
+                        {tc.explanation && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
+                            <strong>Explanation:</strong> {tc.explanation}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: '12px', background: '#1e293b', borderRadius: '6px', color: '#94a3b8', fontSize: '0.85rem' }}>
+                    No sample test cases configured yet.
+                  </div>
+                )}
+              </div>
+
+              {/* Starter Code Preview */}
+              <div className="preview-section-card" style={{ marginTop: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h4 className="preview-section-title" style={{ margin: 0 }}>Starter Code Template</h4>
+                  <select
+                    className="editor-select"
+                    value={previewActiveLang}
+                    onChange={(e) => setPreviewActiveLang(e.target.value)}
+                    style={{ width: 'auto', padding: '4px 10px', fontSize: '0.82rem' }}
+                    data-testid="preview-lang-select"
+                  >
+                    {(previewData.allowedLanguages || SUPPORTED_LANGUAGES.map((l) => l.id)).map((lang) => (
+                      <option key={lang} value={lang}>
+                        {SUPPORTED_LANGUAGES.find((sl) => sl.id === lang)?.name || lang}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <pre
+                  style={{ margin: 0, padding: '14px', background: '#090d16', borderRadius: '8px', fontSize: '0.85rem', color: '#cbd5e1', overflowX: 'auto', border: '1px solid #1e293b' }}
+                  data-testid="preview-starter-code"
+                >
+                  {previewData.starterTemplates?.[previewActiveLang] || '// No starter code provided for this language.'}
+                </pre>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid #1e293b' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setIsPreviewOpen(false)}
+                data-testid="preview-dismiss-btn"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Phase 7.4.9 Publish Validation Failure Modal */}
+      {publishErrors && (
+        <div className="editor-modal-backdrop" data-testid="publish-errors-modal">
+          <div className="editor-modal-container publish-errors-dialog">
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertTriangle size={20} style={{ color: '#f87171' }} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#f87171' }}>
+                  Publication Validation Failed
+                </h3>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setPublishErrors(null)}
+                data-testid="publish-errors-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '20px' }}>
+              <p style={{ margin: '0 0 16px 0', fontSize: '0.88rem', color: '#cbd5e1' }}>
+                The problem does not yet meet all platform publication safety requirements. Please address the following issues before publishing:
+              </p>
+
+              <div className="publish-errors-list" data-testid="publish-errors-list">
+                {publishErrors.map((err, idx) => {
+                  const targetTab = getTabForPublishError(err);
+                  return (
+                    <div
+                      key={idx}
+                      className="publish-error-row"
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '10px 14px', background: '#2d1215', border: '1px solid #7f1d1d', borderRadius: '6px', marginBottom: '8px' }}
+                      data-testid={`publish-error-item-${idx}`}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fca5a5', fontSize: '0.85rem' }}>
+                        <XCircle size={15} style={{ flexShrink: 0 }} />
+                        <span>{err}</span>
+                      </div>
+                      <button
+                        className="btn-jump-tab"
+                        onClick={() => {
+                          setActiveTab(targetTab);
+                          setPublishErrors(null);
+                        }}
+                        data-testid={`jump-tab-${targetTab}`}
+                        title={`Navigate to ${targetTab.replace('_', ' ')} tab`}
+                      >
+                        Fix in {targetTab.replace('_', ' ')} &rarr;
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid #1e293b' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setPublishErrors(null)}
+                data-testid="publish-errors-dismiss-btn"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Phase 7.4.9 Publish Success Modal */}
+      {publishSuccessInfo && (
+        <div className="editor-modal-backdrop" data-testid="publish-success-modal">
+          <div className="editor-modal-container publish-success-dialog" style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <CheckCircle2 size={22} style={{ color: '#22c55e' }} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#86efac' }}>
+                  Problem Published!
+                </h3>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setPublishSuccessInfo(null)}
+                data-testid="publish-success-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '20px', textAlign: 'center' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(34,197,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', color: '#22c55e' }}>
+                <UploadCloud size={30} />
+              </div>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
+                {formData.title}
+              </h4>
+              <p style={{ margin: '0 0 16px 0', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                Successfully published to the student catalog as <strong style={{ color: '#86efac' }}>Version {publishSuccessInfo.version}</strong>. An immutable snapshot has been stored in version history.
+              </p>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'center', padding: '14px 20px', borderTop: '1px solid #1e293b' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setPublishSuccessInfo(null)}
+                data-testid="btn-stay-published"
+              >
+                Stay in Editor
+              </button>
+              <button
+                className="btn-primary"
+                onClick={onBack}
+                data-testid="btn-view-catalog"
+              >
+                Back to Problems
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Phase 7.4.9 Concurrency Conflict Modal */}
+      {showConflictModal && (
+        <div className="editor-modal-backdrop" data-testid="concurrency-conflict-modal">
+          <div className="editor-modal-container concurrency-conflict-dialog" style={{ maxWidth: '520px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertTriangle size={20} style={{ color: '#fbbf24' }} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#fbbf24' }}>
+                  Optimistic Concurrency Conflict
+                </h3>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setShowConflictModal(false)}
+                data-testid="conflict-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '20px' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#f8fafc' }}>
+                This problem was modified in another session.
+              </p>
+              <div style={{ background: '#1e293b', padding: '12px 16px', borderRadius: '6px', fontSize: '0.85rem', color: '#94a3b8', marginBottom: '16px' }}>
+                <div>Your local version: <strong style={{ color: '#f87171' }}>v{formData.version}</strong></div>
+                <div>Server latest version: <strong style={{ color: '#86efac' }}>v{conflictVersion || (formData.version + 1)}</strong></div>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: '#cbd5e1' }}>
+                To prevent silent overwrites of concurrent modifications, you must reload the latest version before submitting further changes.
+              </p>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid #1e293b' }}>
+              <button className="btn-secondary" onClick={() => setShowConflictModal(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleConflictReload}
+                disabled={isReloadingConflict}
+                data-testid="btn-reload-latest"
+              >
+                {isReloadingConflict ? 'Reloading...' : 'Reload Latest Problem'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Phase 7.4.9 Version History Modal */}
+      {isVersionHistoryOpen && (
+        <div className="editor-modal-backdrop" data-testid="version-history-modal">
+          <div className="editor-modal-container versions-modal-dialog" style={{ maxWidth: '640px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <History size={20} style={{ color: '#38bdf8' }} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#f8fafc' }}>
+                  Publication Version History
+                </h3>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setIsVersionHistoryOpen(false)}
+                data-testid="versions-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: '20px' }}>
+              {versionHistoryLoading && (
+                <p style={{ color: '#94a3b8', fontSize: '0.88rem' }}>Loading versions snapshot audit trail...</p>
+              )}
+              {versionHistoryError && (
+                <div className="editor-alert-box error">
+                  <AlertCircle size={15} />
+                  <span>{versionHistoryError}</span>
+                </div>
+              )}
+              {!versionHistoryLoading && !versionHistoryError && versionHistory.length === 0 && (
+                <p style={{ color: '#94a3b8', fontSize: '0.88rem' }}>
+                  No published version snapshots recorded yet. When you publish this problem, immutable snapshots will appear here.
+                </p>
+              )}
+              {!versionHistoryLoading && versionHistory.length > 0 && (
+                <div className="versions-timeline" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} data-testid="versions-timeline-list">
+                  {versionHistory.map((ver, idx) => (
+                    <div
+                      key={ver.id || idx}
+                      className="version-history-item"
+                      style={{ background: '#0b1120', border: '1px solid #1e293b', borderRadius: '8px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      data-testid={`version-item-${ver.versionNumber || ver.version_number}`}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 700, color: '#38bdf8', fontSize: '0.95rem' }}>
+                            Version {ver.versionNumber || ver.version_number}
+                          </span>
+                          <span className="status-badge published" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
+                            PUBLISHED SNAPSHOT
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '4px' }}>
+                          {ver.changeSummary || ver.change_summary || 'Publication snapshot'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                          {ver.createdAt || ver.created_at ? new Date(ver.createdAt || ver.created_at).toLocaleString() : 'Timestamp unavailable'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 20px', borderTop: '1px solid #1e293b' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setIsVersionHistoryOpen(false)}
+                data-testid="versions-dismiss-btn"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Unsaved Changes Confirmation Modal */}
       {showUnsavedPrompt && (

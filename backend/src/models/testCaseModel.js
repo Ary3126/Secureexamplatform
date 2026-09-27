@@ -159,7 +159,7 @@ class TestCaseModel {
     const values = [problemId];
 
     if (!includeHidden) {
-      text += ' AND (is_hidden = false OR is_sample = true)';
+      text += ' AND is_hidden = false';
     }
 
     text += ' ORDER BY COALESCE(test_order, order_index, 1) ASC, id ASC;';

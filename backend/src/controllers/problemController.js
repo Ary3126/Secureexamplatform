@@ -41,6 +41,9 @@ const createProblem = async (req, res, next) => {
       allowedLanguages,
       accessScope: effectiveScope,
       createdBy,
+      isPublished: req.body.isPublished !== undefined
+        ? Boolean(req.body.isPublished)
+        : (req.body.is_published !== undefined ? Boolean(req.body.is_published) : undefined),
       testCases,
     }, req.user, req);
 
@@ -418,9 +421,12 @@ const previewProblem = async (req, res, next) => {
       difficulty: problem.difficulty,
       codingMode: problem.codingMode,
       starterTemplates: problem.starterTemplates,
+      functionConfig: problem.functionConfig,
+      allowedLanguages: problem.allowedLanguages,
       accessScope: problem.accessScope,
       version: problem.version,
       isPublished: problem.isPublished,
+      reviewStatus: problem.reviewStatus,
       sampleTestCases,
     });
   } catch (error) {

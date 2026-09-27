@@ -288,3 +288,86 @@ export function validateProblemForm(data) {
     errors,
   };
 }
+
+/**
+ * Map publication validation error messages to the relevant editor tab
+ */
+export function getTabForPublishError(errorMsg) {
+  if (!errorMsg || typeof errorMsg !== 'string') return 'basic';
+  const msg = errorMsg.toLowerCase();
+  if (msg.includes('title') || msg.includes('difficulty') || msg.includes('scope')) {
+    return 'basic';
+  }
+  if (msg.includes('description') || msg.includes('statement') || msg.includes('example')) {
+    return 'examples';
+  }
+  if (msg.includes('coding mode') || msg.includes('coding_mode')) {
+    return 'coding_mode';
+  }
+  if (msg.includes('starter') || msg.includes('language')) {
+    return 'languages';
+  }
+  if (msg.includes('harness') || msg.includes('function') || msg.includes('parameter') || msg.includes('return')) {
+    return 'function_dsl';
+  }
+  if (msg.includes('test case') || msg.includes('sample') || msg.includes('expected output') || msg.includes('input')) {
+    return 'test_cases';
+  }
+  if (msg.includes('time') || msg.includes('memory') || msg.includes('review') || msg.includes('approval') || msg.includes('version')) {
+    return 'execution';
+  }
+  return 'basic';
+}
+
+/**
+ * Check publication readiness on the client side before submitting
+ */
+export function validateForPublish(formData) {
+  const errors = [];
+  if (!formData.title || formData.title.trim().length < 3) {
+    errors.push('Problem title is required and must be at least 3 characters.');
+  }
+  if (!formData.description || formData.description.trim().length < 5) {
+    errors.push('Problem description / statement is required and must be at least 5 characters.');
+  }
+  if (!['easy', 'medium', 'hard'].includes((formData.difficulty || '').toLowerCase())) {
+    errors.push('Problem must have a valid difficulty (easy, medium, or hard).');
+  }
+  if (!['full_program', 'function'].includes((formData.codingMode || '').toLowerCase())) {
+    errors.push('Problem must have a valid coding mode (full_program or function).');
+  }
+  if (formData.codingMode === 'function') {
+    const fnName = formData.functionConfig?.functionName?.trim();
+    if (!fnName) {
+      errors.push('Function name is required in Function Mode.');
+    }
+    const starters = formData.starterTemplates || {};
+    const harnesses = formData.harnessTemplates || {};
+    const supportedLangs = ['python', 'cpp', 'java', 'javascript', 'c'];
+    const hasAnyStarter = supportedLangs.some((lang) => starters[lang] && starters[lang].trim());
+    const hasAnyHarness = supportedLangs.some((lang) => harnesses[lang] && harnesses[lang].trim());
+    if (!hasAnyStarter) {
+      errors.push('Function-mode problems must provide starter templates for at least one supported language.');
+    }
+    if (!hasAnyHarness) {
+      errors.push('Function-mode problems must provide harness templates for at least one supported language.');
+    }
+  }
+
+  const testCases = (formData.testCases && formData.testCases.length > 0)
+    ? formData.testCases
+    : (formData.examples || []);
+  if (testCases.length === 0) {
+    errors.push('Problem must have at least one test case before publication.');
+  } else {
+    const hasSample = testCases.some((tc) => !tc.isHidden || tc.isSample !== false);
+    if (!hasSample) {
+      errors.push('Problem must have at least one visible sample test case.');
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}

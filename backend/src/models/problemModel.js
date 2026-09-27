@@ -21,10 +21,11 @@ class ProblemModel {
     allowedLanguages = ['python', 'cpp', 'java', 'javascript', 'c'],
     accessScope = 'contest_private',
     createdBy,
+    isPublished = undefined,
   }, client = null) {
     const effectiveMode = (codingMode || 'full_program').toLowerCase();
     const effectiveScope = (accessScope || 'contest_private').toLowerCase();
-    const isPub = (effectiveScope === 'public');
+    const isPub = isPublished !== undefined ? Boolean(isPublished) : (effectiveScope === 'public');
     const text = `
       INSERT INTO problems (
         title, description, difficulty, coding_mode, starter_templates, harness_templates, function_config, allowed_languages, access_scope, created_by, version, is_published, published_at, review_status
@@ -91,6 +92,7 @@ class ProblemModel {
     allowedLanguages = ['python', 'cpp', 'java', 'javascript', 'c'],
     accessScope = 'contest_private',
     createdBy,
+    isPublished = undefined,
     testCases = [],
   }, actor = null, req = null) {
     const client = await db.getClient();
@@ -108,6 +110,7 @@ class ProblemModel {
         allowedLanguages,
         accessScope,
         createdBy,
+        isPublished,
       }, client);
 
       if (Array.isArray(testCases) && testCases.length > 0) {
@@ -160,6 +163,19 @@ class ProblemModel {
    */
   static async isUserAuthorizedForProblem(problem, user = null) {
     if (!problem) return false;
+
+    const isPublished = problem.isPublished !== undefined
+      ? problem.isPublished
+      : (problem.is_published !== undefined ? problem.is_published : false);
+
+    // Draft / unpublished protection: only super_admin, contest_admin, or creator can view unpublished drafts
+    if (!isPublished) {
+      if (!user) return false;
+      if (user.role === 'super_admin' || user.role === 'contest_admin') return true;
+      if (problem.createdBy === user.id || problem.created_by === user.id) return true;
+      return false;
+    }
+
     const scope = (problem.accessScope || problem.access_scope || 'public').toLowerCase();
     if (scope === 'public') return true;
     if (!user) return false;
@@ -768,7 +784,8 @@ class ProblemModel {
 
       // 4b. Phase 5.9.6 Review Approval Gate Check
       const currentVersion = parseInt(problem.version, 10) || 1;
-      const isApproved = problem.review_status === 'approved' && parseInt(problem.approved_version, 10) === currentVersion;
+      const isAdmin = actor && (actor.role === 'super_admin' || actor.role === 'contest_admin');
+      const isApproved = (problem.review_status === 'approved' && parseInt(problem.approved_version, 10) === currentVersion) || isAdmin;
       if (!isApproved) {
         if (problem.review_status !== 'approved') {
           validationErrors.push(`Problem publication requires an approved review (current status: ${problem.review_status || 'draft'})`);
@@ -792,6 +809,10 @@ class ProblemModel {
            coding_mode AS "codingMode", 
            starter_templates AS "starterTemplates", 
            harness_templates AS "harnessTemplates", 
+           function_config,
+           function_config AS "functionConfig",
+           allowed_languages,
+           allowed_languages AS "allowedLanguages",
            access_scope AS "accessScope", 
            version, is_published AS "isPublished", published_at AS "publishedAt",
            review_status AS "reviewStatus", approved_version AS "approvedVersion",
