@@ -1147,6 +1147,12 @@ class ContestModel {
     return (res.rowCount || 0) > 0;
   }
 
+  static async getContestProblemPoints(contestId, problemId) {
+    const text = 'SELECT points FROM contest_problems WHERE contest_id = $1 AND problem_id = $2;';
+    const res = await db.query(text, [contestId, problemId]);
+    return res.rows[0] ? res.rows[0].points : null;
+  }
+
   static async getContestProblems(contestId) {
     const text = `
       SELECT 

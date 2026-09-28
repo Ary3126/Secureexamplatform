@@ -243,9 +243,9 @@ export default function AdminContestProblemList({
     if (!selectedProblem || isSubmitting) return;
 
     // Defense-in-depth client validation
-    const parsedPts = parseInt(problemPoints, 10);
-    if (isNaN(parsedPts) || parsedPts <= 0) {
-      setModalSubmitError('Points must be a positive integer greater than zero.');
+    const parsedPts = Number(problemPoints);
+    if (!Number.isInteger(parsedPts) || parsedPts <= 0 || parsedPts > 100000) {
+      setModalSubmitError('Points must be a positive integer greater than zero and at most 100,000.');
       return;
     }
 
@@ -1287,7 +1287,7 @@ export default function AdminContestProblemList({
                 <input
                   type="number"
                   min="1"
-                  max="1000"
+                  max="100000"
                   value={problemPoints}
                   onChange={(e) => setProblemPoints(Math.max(1, parseInt(e.target.value, 10) || 100))}
                   data-testid="problem-points-input"

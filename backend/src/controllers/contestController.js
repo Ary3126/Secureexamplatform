@@ -583,21 +583,30 @@ const addProblemToContest = async (req, res, next) => {
     }
 
     // 5. Parse and validate points and problemOrder
-    const parsedPoints = points !== undefined ? parseInt(points, 10) : 100;
-    if (points !== undefined && (isNaN(parsedPoints) || parsedPoints <= 0)) {
-      return res.status(400).json({
-        status: 'error',
-        statusCode: 400,
-        message: 'Points must be a positive integer.',
-      });
+    let parsedPoints = 100;
+    if (points !== undefined) {
+      const numPoints = Number(points);
+      if (!Number.isInteger(numPoints) || numPoints <= 0 || numPoints > 100000) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Points must be a positive integer (max 100000).',
+        });
+      }
+      parsedPoints = numPoints;
     }
-    const parsedOrder = problemOrder !== undefined ? parseInt(problemOrder, 10) : undefined;
-    if (problemOrder !== undefined && (isNaN(parsedOrder) || parsedOrder <= 0)) {
-      return res.status(400).json({
-        status: 'error',
-        statusCode: 400,
-        message: 'Problem order must be a positive integer.',
-      });
+
+    let parsedOrder = undefined;
+    if (problemOrder !== undefined) {
+      const numOrder = Number(problemOrder);
+      if (!Number.isInteger(numOrder) || numOrder <= 0) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Problem order must be a positive integer.',
+        });
+      }
+      parsedOrder = numOrder;
     }
 
     // 6. Atomic insert with row-level locking & audit logging
@@ -835,8 +844,8 @@ const bulkAddProblemsToContest = async (req, res, next) => {
           message: `Invalid problem entry at index ${i}. Must be an object.`,
         });
       }
-      const pId = parseInt(item.problemId || item.id, 10);
-      if (isNaN(pId) || pId <= 0) {
+      const numPId = Number(item.problemId || item.id);
+      if (!Number.isInteger(numPId) || numPId <= 0) {
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -844,18 +853,18 @@ const bulkAddProblemsToContest = async (req, res, next) => {
         });
       }
       if (item.points !== undefined) {
-        const pts = parseInt(item.points, 10);
-        if (isNaN(pts) || pts <= 0) {
+        const numPts = Number(item.points);
+        if (!Number.isInteger(numPts) || numPts <= 0 || numPts > 100000) {
           return res.status(400).json({
             status: 'error',
             statusCode: 400,
-            message: `Invalid points at index ${i}. Points must be a positive integer.`,
+            message: `Invalid points at index ${i}. Points must be a positive integer (max 100000).`,
           });
         }
       }
       if (item.problemOrder !== undefined || item.order !== undefined) {
-        const ord = parseInt(item.problemOrder || item.order, 10);
-        if (isNaN(ord) || ord <= 0) {
+        const numOrd = Number(item.problemOrder || item.order);
+        if (!Number.isInteger(numOrd) || numOrd <= 0) {
           return res.status(400).json({
             status: 'error',
             statusCode: 400,

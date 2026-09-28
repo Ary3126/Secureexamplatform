@@ -509,12 +509,18 @@ const validateAddProblemToContest = (req, res, next) => {
     errors.push('A valid positive integer problemId is required.');
   }
 
-  if (problemOrder !== undefined && (isNaN(parseInt(problemOrder, 10)) || parseInt(problemOrder, 10) <= 0)) {
-    errors.push('Problem order must be a positive integer.');
+  if (problemOrder !== undefined) {
+    const numOrder = Number(problemOrder);
+    if (!Number.isInteger(numOrder) || numOrder <= 0) {
+      errors.push('Problem order must be a positive integer.');
+    }
   }
 
-  if (points !== undefined && (isNaN(parseInt(points, 10)) || parseInt(points, 10) <= 0)) {
-    errors.push('Points must be a positive integer.');
+  if (points !== undefined) {
+    const numPoints = Number(points);
+    if (!Number.isInteger(numPoints) || numPoints <= 0 || numPoints > 100000) {
+      errors.push('Points must be a positive integer (max 100000).');
+    }
   }
 
   if (errors.length > 0) {

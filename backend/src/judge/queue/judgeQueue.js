@@ -2,6 +2,7 @@ const EventEmitter = require('events');
 const SubmissionModel = require('../../models/submissionModel');
 const TestCaseModel = require('../../models/testCaseModel');
 const ProblemModel = require('../../models/problemModel');
+const ContestModel = require('../../models/contestModel');
 const JudgeService = require('../judgeService');
 const SecurityLogger = require('../security/securityLogger');
 const RATE_LIMIT_CONFIG = require('../../config/rateLimitConfig');
@@ -143,6 +144,22 @@ class JudgeQueue extends EventEmitter {
         includeHidden,
       });
 
+      // 2b. Determine problem points (authoritative contest_problems points if in a contest, otherwise default 100)
+      let problemPoints = 100;
+      if (submission.contestId) {
+        try {
+          const configuredPoints = await ContestModel.getContestProblemPoints(
+            submission.contestId,
+            submission.problemId
+          );
+          if (configuredPoints && Number.isInteger(Number(configuredPoints)) && Number(configuredPoints) > 0) {
+            problemPoints = Number(configuredPoints);
+          }
+        } catch (cpErr) {
+          console.warn(`[JUDGE QUEUE] Error resolving contest problem points: ${cpErr.message}`);
+        }
+      }
+
       // 3. Perform isolated evaluation through Enhanced Validation Pipeline
       const verdictResult = await JudgeService.evaluateSubmission({
         submissionId: submission.id,
@@ -151,7 +168,7 @@ class JudgeQueue extends EventEmitter {
         sourceCode: submission.sourceCode,
         problem,
         testCases,
-        problemPoints: 100,
+        problemPoints,
         isSampleRun,
       });
 
