@@ -168,7 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_problem_quality_lookup ON problem_quality_snapsho
 CREATE TABLE IF NOT EXISTS contest_problems (
     contest_id INTEGER NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
     problem_id INTEGER NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
-    problem_order INTEGER NOT NULL DEFAULT 1,
+    problem_order INTEGER NOT NULL DEFAULT 1 CHECK (problem_order > 0),
     points INTEGER NOT NULL DEFAULT 100 CHECK (points > 0),
     PRIMARY KEY (contest_id, problem_id)
 );

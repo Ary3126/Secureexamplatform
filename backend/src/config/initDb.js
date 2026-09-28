@@ -309,6 +309,10 @@ const initDb = async () => {
       CREATE INDEX IF NOT EXISTS idx_system_incidents_status ON system_incidents(status);
       CREATE INDEX IF NOT EXISTS idx_system_incidents_category ON system_incidents(category);
       CREATE INDEX IF NOT EXISTS idx_system_incidents_request_id ON system_incidents(request_id);
+
+      -- Phase 7.5.5.8 Migration: Contest Problem Order Integrity
+      ALTER TABLE contest_problems DROP CONSTRAINT IF EXISTS contest_problems_order_check;
+      ALTER TABLE contest_problems ADD CONSTRAINT contest_problems_order_check CHECK (problem_order > 0);
     `);
 
     // 2b. Execute full schema SQL (tables, indexes, constraints)

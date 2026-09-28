@@ -242,6 +242,18 @@ export default function AdminContestProblemList({
     if (e && e.preventDefault) e.preventDefault();
     if (!selectedProblem || isSubmitting) return;
 
+    // Defense-in-depth client validation
+    const parsedPts = parseInt(problemPoints, 10);
+    if (isNaN(parsedPts) || parsedPts <= 0) {
+      setModalSubmitError('Points must be a positive integer greater than zero.');
+      return;
+    }
+
+    if (activeProblems.some((ap) => String(ap.problemId || ap.id) === String(selectedProblem.id))) {
+      setModalSubmitError('Problem is already attached to this contest.');
+      return;
+    }
+
     setIsSubmitting(true);
     setModalSubmitError(null);
 
@@ -257,7 +269,7 @@ export default function AdminContestProblemList({
         },
         body: JSON.stringify({
           problemId: selectedProblem.id,
-          points: parseInt(problemPoints, 10) || 100,
+          points: parsedPts,
         }),
       });
 
@@ -269,7 +281,9 @@ export default function AdminContestProblemList({
           msg = data.errors.join(' ');
         }
         if (res.status === 401) msg = 'Session expired. Please log in again.';
-        if (res.status === 409) msg = data.message || 'Contest is locked for problem modifications.';
+        if (res.status === 403) msg = data.message || 'Forbidden: You do not have permission to attach this problem.';
+        if (res.status === 404) msg = data.message || 'Contest or problem not found.';
+        if (res.status === 409) msg = data.message || 'Contest is locked or problem is already attached.';
         if (res.status === 429) msg = 'Rate limit exceeded. Please wait a moment.';
         throw new Error(msg || `Failed to add problem (${res.status})`);
       }
@@ -420,6 +434,11 @@ export default function AdminContestProblemList({
   const handleSaveOrder = async () => {
     if (!isReorderMode || isSavingOrder || !contestId) return;
 
+    if (!reorderProblems || reorderProblems.length === 0) {
+      setReorderError('Cannot save empty problem sequence.');
+      return;
+    }
+
     setIsSavingOrder(true);
     setReorderError(null);
 
@@ -443,6 +462,9 @@ export default function AdminContestProblemList({
         let msg = data.message;
         if (data.errors && Array.isArray(data.errors)) {
           msg = data.errors.join(' ');
+        }
+        if (res.status === 400 || res.status === 422) {
+          msg = data.message || (data.errors && data.errors.join(' ')) || 'Invalid ordering payload provided.';
         }
         if (res.status === 401) msg = 'Session expired. Please log in again.';
         if (res.status === 403) msg = 'Forbidden: You do not have permission to reorder problems in this contest.';

@@ -582,9 +582,23 @@ const addProblemToContest = async (req, res, next) => {
       }
     }
 
-    // 5. Parse points and problemOrder
+    // 5. Parse and validate points and problemOrder
     const parsedPoints = points !== undefined ? parseInt(points, 10) : 100;
+    if (points !== undefined && (isNaN(parsedPoints) || parsedPoints <= 0)) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Points must be a positive integer.',
+      });
+    }
     const parsedOrder = problemOrder !== undefined ? parseInt(problemOrder, 10) : undefined;
+    if (problemOrder !== undefined && (isNaN(parsedOrder) || parsedOrder <= 0)) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Problem order must be a positive integer.',
+      });
+    }
 
     // 6. Atomic insert with row-level locking & audit logging
     const addResult = await ContestModel.addProblemToContestWithSafety({
@@ -812,6 +826,45 @@ const bulkAddProblemsToContest = async (req, res, next) => {
       });
     }
 
+    for (let i = 0; i < problems.length; i++) {
+      const item = problems[i];
+      if (!item || typeof item !== 'object') {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: `Invalid problem entry at index ${i}. Must be an object.`,
+        });
+      }
+      const pId = parseInt(item.problemId || item.id, 10);
+      if (isNaN(pId) || pId <= 0) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: `Invalid problemId at index ${i}. Must be a positive integer.`,
+        });
+      }
+      if (item.points !== undefined) {
+        const pts = parseInt(item.points, 10);
+        if (isNaN(pts) || pts <= 0) {
+          return res.status(400).json({
+            status: 'error',
+            statusCode: 400,
+            message: `Invalid points at index ${i}. Points must be a positive integer.`,
+          });
+        }
+      }
+      if (item.problemOrder !== undefined || item.order !== undefined) {
+        const ord = parseInt(item.problemOrder || item.order, 10);
+        if (isNaN(ord) || ord <= 0) {
+          return res.status(400).json({
+            status: 'error',
+            statusCode: 400,
+            message: `Invalid problemOrder at index ${i}. Problem order must be a positive integer.`,
+          });
+        }
+      }
+    }
+
     const contest = await ContestModel.findContestById(contestId);
     if (!contest) {
       return res.status(404).json({
@@ -900,6 +953,26 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
   try {
     const { id: contestId } = req.params;
     const { problemIds } = req.body || {};
+
+    if (problemIds !== undefined && problemIds !== null) {
+      if (!Array.isArray(problemIds)) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'problemIds must be an array of positive integers.',
+        });
+      }
+      for (const id of problemIds) {
+        const idNum = parseInt(id, 10);
+        if (isNaN(idNum) || idNum <= 0) {
+          return res.status(400).json({
+            status: 'error',
+            statusCode: 400,
+            message: `Invalid problem ID in removal list: ${id}. Must be a positive integer.`,
+          });
+        }
+      }
+    }
 
     const contest = await ContestModel.findContestById(contestId);
     if (!contest) {
