@@ -8,6 +8,7 @@ const {
   validateUpdateContest,
   validateAddProblemToContest,
   validateRemoveProblemFromContest,
+  validateReorderContestProblems,
 } = require('../middleware/contestValidation');
 const {
   contestActionRateLimiter,
@@ -132,6 +133,42 @@ router.put(
   authorizeRoles('professor', 'contest_admin', 'super_admin'),
   contestActionRateLimiter,
   contestController.bulkAddProblemsToContest
+);
+
+/**
+ * @route PUT /api/contests/:contestId/problems/order
+ * @route PUT /api/contests/:id/problems/order
+ * @route PATCH /api/contests/:contestId/problems/order
+ * @route PATCH /api/contests/:id/problems/order
+ * Reorder problems in a contest
+ */
+router.put(
+  '/:contestId/problems/order',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateReorderContestProblems,
+  contestController.reorderContestProblems
+);
+router.put(
+  '/:id/problems/order',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateReorderContestProblems,
+  contestController.reorderContestProblems
+);
+router.patch(
+  '/:contestId/problems/order',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateReorderContestProblems,
+  contestController.reorderContestProblems
+);
+router.patch(
+  '/:id/problems/order',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateReorderContestProblems,
+  contestController.reorderContestProblems
 );
 
 /**

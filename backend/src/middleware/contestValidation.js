@@ -557,6 +557,51 @@ const validateRemoveProblemFromContest = (req, res, next) => {
   next();
 };
 
+/**
+ * Validate contest problem ordering payload
+ */
+const validateReorderContestProblems = (req, res, next) => {
+  const rawContestId = req.params.contestId || req.params.id;
+  const errors = [];
+
+  if (!rawContestId || isNaN(parseInt(rawContestId, 10)) || parseInt(rawContestId, 10) <= 0) {
+    errors.push('A valid positive integer contest ID is required.');
+  }
+
+  const body = req.body || {};
+  const candidateList = body.problemIds || body.orderedProblemIds || body.problems || body.order || (Array.isArray(body) ? body : null);
+
+  if (!candidateList || !Array.isArray(candidateList) || candidateList.length === 0) {
+    errors.push('A non-empty array of problem IDs or ordering objects is required.');
+  } else {
+    const seen = new Set();
+    for (const item of candidateList) {
+      const rawId = typeof item === 'object' && item !== null ? (item.problemId || item.id) : item;
+      const idNum = parseInt(rawId, 10);
+      if (isNaN(idNum) || idNum <= 0) {
+        errors.push(`Invalid problem ID: ${rawId}. Problem ID must be a positive integer.`);
+        break;
+      }
+      if (seen.has(idNum)) {
+        errors.push(`Duplicate problem ID: ${idNum}. Each problem ID must appear exactly once.`);
+        break;
+      }
+      seen.add(idNum);
+    }
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed for contest problem ordering',
+      errors,
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   validateCreateContest,
   validateUpdateContest,
@@ -564,4 +609,5 @@ module.exports = {
   validateUpdateProblem,
   validateAddProblemToContest,
   validateRemoveProblemFromContest,
+  validateReorderContestProblems,
 };

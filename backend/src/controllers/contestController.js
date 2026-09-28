@@ -798,6 +798,9 @@ const removeProblemFromContest = async (req, res, next) => {
  */
 const bulkAddProblemsToContest = async (req, res, next) => {
   try {
+    if ((req.body?.problemIds || req.body?.orderedProblemIds) && !req.body?.problems) {
+      return reorderContestProblems(req, res, next);
+    }
     const { id: contestId } = req.params;
     const { problems } = req.body;
 
@@ -1109,6 +1112,158 @@ const getContestLeaderboard = async (req, res, next) => {
   }
 };
 
+/**
+ * Reorder problems in a contest
+ * @route PUT /api/contests/:contestId/problems/order
+ * @route PUT /api/contests/:id/problems/order
+ * @route PATCH /api/contests/:contestId/problems/order
+ * @route PATCH /api/contests/:id/problems/order
+ */
+const reorderContestProblems = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = parseInt(rawContestId, 10);
+    if (isNaN(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    // Parse ordered problem IDs from body (support { problemIds: [...] }, { orderedProblemIds: [...] }, or { order: [...] })
+    let orderedProblemIds = null;
+    if (Array.isArray(req.body.problemIds)) {
+      orderedProblemIds = req.body.problemIds;
+    } else if (Array.isArray(req.body.orderedProblemIds)) {
+      orderedProblemIds = req.body.orderedProblemIds;
+    } else if (Array.isArray(req.body.problems)) {
+      orderedProblemIds = req.body.problems
+        .sort((a, b) => (parseInt(a.problemOrder || a.order, 10) || 0) - (parseInt(b.problemOrder || b.order, 10) || 0))
+        .map(p => p.problemId || p.id);
+    } else if (Array.isArray(req.body.order)) {
+      orderedProblemIds = req.body.order
+        .sort((a, b) => (parseInt(a.problemOrder || a.order, 10) || 0) - (parseInt(b.problemOrder || b.order, 10) || 0))
+        .map(p => p.problemId || p.id);
+    } else if (Array.isArray(req.body)) {
+      orderedProblemIds = req.body;
+    }
+
+    if (!orderedProblemIds || !Array.isArray(orderedProblemIds) || orderedProblemIds.length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'A non-empty array of problem IDs is required for reordering.',
+      });
+    }
+
+    // 1. Resolve contest resource
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    // 2. Ownership & RBAC check BEFORE lifecycle check
+    if (!canManageResource(req.user, contest)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_PROBLEMS_REORDERED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to reorder problems in this contest',
+      });
+    }
+
+    // 3. Authoritative lifecycle check
+    const runtimeState = getContestRuntimeState(contest);
+    if (isLifecycleMutationLocked(runtimeState)) {
+      const lockMessage = getProblemMutationLockMessage(runtimeState);
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_PROBLEM_MUTATION',
+          operation: 'reorder',
+          runtimeState,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: lockMessage,
+      });
+    }
+
+    // 4. Atomic reorder execution under transaction row lock
+    const reorderResult = await ContestModel.reorderContestProblemsWithSafety(
+      contestIdNum,
+      orderedProblemIds,
+      req.user,
+      req
+    );
+
+    if (reorderResult.locked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_PROBLEM_MUTATION',
+          operation: 'reorder',
+          runtimeState: reorderResult.runtimeState,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: reorderResult.message,
+      });
+    }
+
+    if (!reorderResult.success) {
+      if (reorderResult.notFound) {
+        return res.status(404).json({
+          status: 'error',
+          statusCode: 404,
+          message: `Contest with ID ${contestIdNum} not found`,
+        });
+      }
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: reorderResult.message || 'Validation failed for contest problem ordering',
+      });
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Contest problems reordered successfully',
+      contestId: contestIdNum,
+      problems: reorderResult.problems,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createContest,
   getAllContests,
@@ -1119,6 +1274,7 @@ module.exports = {
   getContestProblems,
   addProblemToContest,
   removeProblemFromContest,
+  reorderContestProblems,
   bulkAddProblemsToContest,
   bulkRemoveProblemsFromContest,
   joinContest,

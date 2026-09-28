@@ -13,6 +13,9 @@ import {
   Check,
   Lock,
   Trash2,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 
@@ -20,13 +23,13 @@ import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
  * AdminContestProblemList
  *
  * Dedicated component for viewing and managing problems attached to a contest.
- * Phase 7.5.5.2 (List), Phase 7.5.5.3 (Add Problem), Phase 7.5.5.4 (Remove Problem):
+ * Phase 7.5.5.2 (List), Phase 7.5.5.3 (Add Problem), Phase 7.5.5.4 (Remove Problem), Phase 7.5.5.5 (Ordering):
  * - Displays attached contest problems with order, points, badges, total tally
  * - Allows authorized managers (super_admin, contest_admin, owner professor) to add
  *   existing problems from the platform problem bank
  * - Allows authorized managers to safely remove attached problems (deletes relation ONLY)
+ * - Allows authorized managers to sequentially reorder problems with Move Up / Move Down controls
  * - Enforces client-side duplicate prevention and lifecycle lock warnings
- * - Strictly excludes Drag-and-drop ordering (deferred to 7.5.5.5+)
  */
 export default function AdminContestProblemList({
   contestId,
@@ -38,6 +41,7 @@ export default function AdminContestProblemList({
   onRetry: controlledOnRetry,
   onProblemAdded,
   onProblemRemoved,
+  onProblemReordered,
   token,
 }) {
   const [internalProblems, setInternalProblems] = useState(controlledProblems || []);
@@ -64,6 +68,12 @@ export default function AdminContestProblemList({
   const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const [removeError, setRemoveError] = useState(null);
+
+  // Problem Ordering State (Phase 7.5.5.5)
+  const [isReorderMode, setIsReorderMode] = useState(false);
+  const [reorderProblems, setReorderProblems] = useState([]);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [reorderError, setReorderError] = useState(null);
 
   const searchInputRef = useRef(null);
   const cancelRemoveBtnRef = useRef(null);
@@ -361,6 +371,104 @@ export default function AdminContestProblemList({
     }
   };
 
+  // Enter / Cancel Reorder Mode (Phase 7.5.5.5)
+  const handleToggleReorderMode = () => {
+    if (isLifecycleLocked) return;
+    if (!isReorderMode) {
+      setReorderProblems([...activeProblems]);
+      setReorderError(null);
+      setIsReorderMode(true);
+    } else {
+      setIsReorderMode(false);
+      setReorderProblems([]);
+      setReorderError(null);
+    }
+  };
+
+  const handleCancelReorder = () => {
+    setIsReorderMode(false);
+    setReorderProblems([]);
+    setReorderError(null);
+  };
+
+  // Move Up (Swaps problem with predecessor)
+  const handleMoveUp = (index) => {
+    if (index <= 0 || isSavingOrder) return;
+    setReorderProblems((prev) => {
+      const next = [...prev];
+      const temp = next[index - 1];
+      next[index - 1] = next[index];
+      next[index] = temp;
+      return next;
+    });
+  };
+
+  // Move Down (Swaps problem with successor)
+  const handleMoveDown = (index) => {
+    if (index >= reorderProblems.length - 1 || isSavingOrder) return;
+    setReorderProblems((prev) => {
+      const next = [...prev];
+      const temp = next[index + 1];
+      next[index + 1] = next[index];
+      next[index] = temp;
+      return next;
+    });
+  };
+
+  // Execute Save Order API request (Phase 7.5.5.5)
+  const handleSaveOrder = async () => {
+    if (!isReorderMode || isSavingOrder || !contestId) return;
+
+    setIsSavingOrder(true);
+    setReorderError(null);
+
+    try {
+      const authToken =
+        token || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+      const problemIds = reorderProblems.map((p) => p.problemId || p.id);
+
+      const res = await fetch(`/api/contests/${contestId}/problems/order`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ problemIds }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        let msg = data.message;
+        if (data.errors && Array.isArray(data.errors)) {
+          msg = data.errors.join(' ');
+        }
+        if (res.status === 401) msg = 'Session expired. Please log in again.';
+        if (res.status === 403) msg = 'Forbidden: You do not have permission to reorder problems in this contest.';
+        if (res.status === 404) msg = data.message || 'Contest not found.';
+        if (res.status === 409) msg = data.message || 'Contest is locked for problem modifications.';
+        if (res.status === 429) msg = 'Rate limit exceeded. Please wait a moment.';
+        throw new Error(msg || `Failed to reorder problems (${res.status})`);
+      }
+
+      // Successful reorder: exit reorder mode, show success notification, refresh list
+      setIsReorderMode(false);
+      setSuccessMessage('Problem order updated successfully!');
+      setTimeout(() => setSuccessMessage(null), 4000);
+
+      await fetchProblems();
+      if (onProblemReordered) {
+        onProblemReordered(data);
+      }
+    } catch (err) {
+      setReorderError(err.message || 'Error updating problem order');
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
+
+  const displayProblems = isReorderMode ? reorderProblems : (activeProblems || []);
+
   return (
     <div className="contest-problem-list-section" data-testid="contest-problem-list">
       {/* 1. Header with title, tally, add action, and refresh action */}
@@ -435,6 +543,102 @@ export default function AdminContestProblemList({
               {isLifecycleLocked ? <Lock size={12} /> : <Plus size={12} />}
               <span>Add Problem</span>
             </button>
+          )}
+
+          {/* Reorder Action (Visible only to authorized users when > 1 problem) */}
+          {canManageProblems && (activeProblems?.length || 0) > 1 && (
+            !isReorderMode ? (
+              <button
+                type="button"
+                onClick={handleToggleReorderMode}
+                disabled={isLifecycleLocked}
+                className="btn-reorder-problems"
+                data-testid="toggle-reorder-button"
+                style={{
+                  background: isLifecycleLocked
+                    ? 'rgba(255, 255, 255, 0.04)'
+                    : 'rgba(56, 189, 248, 0.12)',
+                  border: isLifecycleLocked
+                    ? '1px solid rgba(255, 255, 255, 0.08)'
+                    : '1px solid rgba(56, 189, 248, 0.3)',
+                  color: isLifecycleLocked ? '#64748b' : '#38bdf8',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '600',
+                  cursor: isLifecycleLocked ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  transition: 'all 0.15s ease',
+                }}
+                title={
+                  isLifecycleLocked
+                    ? `Cannot reorder problems while contest is ${runtimeState}`
+                    : 'Change problem sequence'
+                }
+                aria-label="Reorder Problems"
+              >
+                {isLifecycleLocked ? <Lock size={12} /> : <ArrowUpDown size={12} />}
+                <span>Reorder</span>
+              </button>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={handleCancelReorder}
+                  disabled={isSavingOrder}
+                  className="btn-cancel-reorder"
+                  data-testid="cancel-reorder-button"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#cbd5e1',
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '0.78rem',
+                    fontWeight: '600',
+                    cursor: isSavingOrder ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveOrder}
+                  disabled={isSavingOrder}
+                  className="btn-save-order"
+                  data-testid="save-order-button"
+                  style={{
+                    background: isSavingOrder
+                      ? 'rgba(56, 189, 248, 0.2)'
+                      : 'linear-gradient(135deg, #0284c7, #2563eb)',
+                    border: '1px solid rgba(56, 189, 248, 0.4)',
+                    color: '#ffffff',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.78rem',
+                    fontWeight: '600',
+                    cursor: isSavingOrder ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  {isSavingOrder ? (
+                    <>
+                      <RotateCcw size={12} className="spin-icon" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={12} />
+                      <span>Save Order</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )
           )}
 
           {/* Refresh Action */}
@@ -578,200 +782,311 @@ export default function AdminContestProblemList({
         </div>
       ) : (
         /* 5. Attached Problem List */
-        <div
-          style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-          role="list"
-          aria-label="Attached contest problems"
-          data-testid="problem-list-items"
-        >
-          {activeProblems.map((problem, idx) => {
-            const probId = problem.problemId || problem.id;
-            const orderNum = problem.problemOrder || idx + 1;
-            const diff = (problem.difficulty || 'medium').toLowerCase();
-            const mode = problem.codingMode || problem.coding_mode || 'full_program';
-            const pts = problem.points || 100;
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* Reorder Mode Active Banner */}
+          {isReorderMode && (
+            <div
+              role="status"
+              data-testid="reorder-mode-banner"
+              style={{
+                background: 'rgba(56, 189, 248, 0.12)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                marginBottom: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                color: '#38bdf8',
+                fontSize: '0.82rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ArrowUpDown size={16} style={{ flexShrink: 0 }} />
+                <span>
+                  <strong>Reorder Mode Active:</strong> Use the Move Up / Move Down buttons to reposition problems. Click <em>Save Order</em> when done.
+                </span>
+              </div>
+            </div>
+          )}
 
-            const diffColor =
-              diff === 'easy'
-                ? { bg: 'rgba(34, 197, 94, 0.15)', text: '#4ade80' }
-                : diff === 'hard'
-                ? { bg: 'rgba(239, 68, 68, 0.15)', text: '#f87171' }
-                : { bg: 'rgba(234, 179, 8, 0.15)', text: '#facc15' };
+          {/* Reorder Error Banner */}
+          {reorderError && (
+            <div
+              role="alert"
+              data-testid="reorder-error"
+              style={{
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                marginBottom: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: '#f87171',
+                fontSize: '0.85rem',
+              }}
+            >
+              <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+              <span data-testid="reorder-error-text">{reorderError}</span>
+            </div>
+          )}
 
-            return (
-              <div
-                key={probId}
-                role="listitem"
-                data-testid={`contest-problem-row-${probId}`}
-                style={{
-                  background: 'rgba(30, 41, 59, 0.6)',
-                  border: '1px solid rgba(255, 255, 255, 0.06)',
-                  borderRadius: '8px',
-                  padding: '12px 14px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '12px',
-                  transition: 'background 0.15s ease',
-                }}
-              >
-                {/* Left: Position badge, Title & Metadata */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
-                  <span
-                    data-testid={`problem-order-badge-${probId}`}
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: '700',
-                      color: '#94a3b8',
-                      background: 'rgba(15, 23, 42, 0.6)',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '6px',
-                      padding: '2px 8px',
-                      minWidth: '32px',
-                      textAlign: 'center',
-                      flexShrink: 0,
-                    }}
-                    title={`Problem Position: ${orderNum}`}
-                  >
-                    #{orderNum}
-                  </span>
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+            role="list"
+            aria-label="Attached contest problems"
+            data-testid="problem-list-items"
+          >
+            {displayProblems.map((problem, idx) => {
+              const probId = problem.problemId || problem.id;
+              const orderNum = isReorderMode ? idx + 1 : (problem.problemOrder || idx + 1);
+              const diff = (problem.difficulty || 'medium').toLowerCase();
+              const mode = problem.codingMode || problem.coding_mode || 'full_program';
+              const pts = problem.points || 100;
 
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div
-                      data-testid={`problem-title-${probId}`}
+              const diffColor =
+                diff === 'easy'
+                  ? { bg: 'rgba(34, 197, 94, 0.15)', text: '#4ade80' }
+                  : diff === 'hard'
+                  ? { bg: 'rgba(239, 68, 68, 0.15)', text: '#f87171' }
+                  : { bg: 'rgba(234, 179, 8, 0.15)', text: '#facc15' };
+
+              return (
+                <div
+                  key={probId}
+                  role="listitem"
+                  data-testid={`contest-problem-row-${probId}`}
+                  style={{
+                    background: isReorderMode ? 'rgba(30, 41, 59, 0.85)' : 'rgba(30, 41, 59, 0.6)',
+                    border: isReorderMode ? '1px solid rgba(56, 189, 248, 0.25)' : '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: '8px',
+                    padding: '12px 14px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {/* Left: Position badge, Title & Metadata */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                    <span
+                      data-testid={`problem-order-badge-${probId}`}
                       style={{
-                        fontWeight: '600',
-                        color: '#f8fafc',
-                        fontSize: '0.88rem',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
+                        fontSize: '0.8rem',
+                        fontWeight: '700',
+                        color: isReorderMode ? '#38bdf8' : '#94a3b8',
+                        background: isReorderMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(15, 23, 42, 0.6)',
+                        border: isReorderMode ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+                        borderRadius: '6px',
+                        padding: '2px 8px',
+                        minWidth: '32px',
+                        textAlign: 'center',
+                        flexShrink: 0,
                       }}
-                      title={problem.title}
+                      title={`Problem Position: ${orderNum}`}
                     >
-                      {problem.title}
-                    </div>
+                      #{orderNum}
+                    </span>
 
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        marginTop: '3px',
-                        fontSize: '0.72rem',
-                        color: '#94a3b8',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <span data-testid={`problem-id-${probId}`}>ID #{probId}</span>
-                      <span>•</span>
-                      <span
-                        data-testid={`problem-difficulty-${probId}`}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        data-testid={`problem-title-${probId}`}
                         style={{
-                          textTransform: 'capitalize',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: diffColor.bg,
-                          color: diffColor.text,
                           fontWeight: '600',
+                          color: '#f8fafc',
+                          fontSize: '0.88rem',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
                         }}
+                        title={problem.title}
                       >
-                        {diff}
-                      </span>
-                      <span>•</span>
-                      <span
-                        data-testid={`problem-mode-${probId}`}
+                        {problem.title}
+                      </div>
+
+                      <div
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '3px',
-                          textTransform: 'capitalize',
+                          gap: '8px',
+                          marginTop: '3px',
+                          fontSize: '0.72rem',
+                          color: '#94a3b8',
+                          flexWrap: 'wrap',
                         }}
                       >
-                        {mode === 'function' ? <Code2 size={11} /> : <FileCode size={11} />}
-                        {mode === 'function' ? 'Function' : 'Full Program'}
-                      </span>
+                        <span data-testid={`problem-id-${probId}`}>ID #{probId}</span>
+                        <span>•</span>
+                        <span
+                          data-testid={`problem-difficulty-${probId}`}
+                          style={{
+                            textTransform: 'capitalize',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: diffColor.bg,
+                            color: diffColor.text,
+                            fontWeight: '600',
+                          }}
+                        >
+                          {diff}
+                        </span>
+                        <span>•</span>
+                        <span
+                          data-testid={`problem-mode-${probId}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            textTransform: 'capitalize',
+                          }}
+                        >
+                          {mode === 'function' ? <Code2 size={11} /> : <FileCode size={11} />}
+                          {mode === 'function' ? 'Function' : 'Full Program'}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Right: Points badge, Status and Remove Action */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                  <span
-                    data-testid={`problem-status-badge-${probId}`}
-                    style={{
-                      fontSize: '0.72rem',
-                      color: '#34d399',
-                      background: 'rgba(52, 211, 153, 0.1)',
-                      border: '1px solid rgba(52, 211, 153, 0.25)',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      fontWeight: '600',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '3px',
-                    }}
-                    title="Active in Contest"
-                  >
-                    <CheckCircle2 size={10} /> Active
-                  </span>
-
-                  <span
-                    data-testid={`problem-points-badge-${probId}`}
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: '700',
-                      color: '#38bdf8',
-                      background: 'rgba(56, 189, 248, 0.1)',
-                      border: '1px solid rgba(56, 189, 248, 0.2)',
-                      padding: '3px 9px',
-                      borderRadius: '6px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                    title={`Problem Points: ${pts}`}
-                  >
-                    <Award size={12} /> {pts} pts
-                  </span>
-
-                  {/* Remove Problem Action (Visible only to authorized users) */}
-                  {canManageProblems && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenRemoveDialog(problem)}
-                      disabled={isLifecycleLocked}
-                      className="btn-remove-problem"
-                      data-testid={`remove-problem-button-${probId}`}
-                      aria-label={`Remove ${problem.title} from contest`}
-                      title={
-                        isLifecycleLocked
-                          ? `Cannot remove problems while contest is ${runtimeState}`
-                          : 'Remove problem from this contest'
-                      }
+                  {/* Right: Points badge, Reorder controls OR Remove Action */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <span
+                      data-testid={`problem-status-badge-${probId}`}
                       style={{
-                        background: isLifecycleLocked ? 'rgba(255, 255, 255, 0.04)' : 'rgba(239, 68, 68, 0.12)',
-                        border: isLifecycleLocked ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(239, 68, 68, 0.3)',
-                        color: isLifecycleLocked ? '#64748b' : '#f87171',
-                        borderRadius: '6px',
-                        padding: '3px 8px',
-                        fontSize: '0.75rem',
+                        fontSize: '0.72rem',
+                        color: '#34d399',
+                        background: 'rgba(52, 211, 153, 0.1)',
+                        border: '1px solid rgba(52, 211, 153, 0.25)',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
                         fontWeight: '600',
-                        cursor: isLifecycleLocked ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                      }}
+                      title="Active in Contest"
+                    >
+                      <CheckCircle2 size={10} /> Active
+                    </span>
+
+                    <span
+                      data-testid={`problem-points-badge-${probId}`}
+                      style={{
+                        fontSize: '0.8rem',
+                        fontWeight: '700',
+                        color: '#38bdf8',
+                        background: 'rgba(56, 189, 248, 0.1)',
+                        border: '1px solid rgba(56, 189, 248, 0.2)',
+                        padding: '3px 9px',
+                        borderRadius: '6px',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '4px',
-                        transition: 'all 0.15s ease',
                       }}
+                      title={`Problem Points: ${pts}`}
                     >
-                      {isLifecycleLocked ? <Lock size={11} /> : <Trash2 size={11} />}
-                      <span>Remove</span>
-                    </button>
-                  )}
+                      <Award size={12} /> {pts} pts
+                    </span>
+
+                    {/* In Reorder Mode: Move Up and Move Down Controls */}
+                    {isReorderMode ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveUp(idx)}
+                          disabled={idx === 0 || isSavingOrder}
+                          className="btn-move-up-problem"
+                          data-testid={`move-up-problem-${probId}`}
+                          aria-label={`Move ${problem.title} up`}
+                          title={idx === 0 ? 'Already at top' : 'Move problem up'}
+                          style={{
+                            background: idx === 0 || isSavingOrder ? 'rgba(255, 255, 255, 0.03)' : 'rgba(56, 189, 248, 0.15)',
+                            border: idx === 0 || isSavingOrder ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(56, 189, 248, 0.35)',
+                            color: idx === 0 || isSavingOrder ? '#475569' : '#38bdf8',
+                            borderRadius: '6px',
+                            padding: '4px 7px',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            cursor: idx === 0 || isSavingOrder ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <ArrowUp size={12} />
+                          <span>Up</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveDown(idx)}
+                          disabled={idx === displayProblems.length - 1 || isSavingOrder}
+                          className="btn-move-down-problem"
+                          data-testid={`move-down-problem-${probId}`}
+                          aria-label={`Move ${problem.title} down`}
+                          title={idx === displayProblems.length - 1 ? 'Already at bottom' : 'Move problem down'}
+                          style={{
+                            background: idx === displayProblems.length - 1 || isSavingOrder ? 'rgba(255, 255, 255, 0.03)' : 'rgba(56, 189, 248, 0.15)',
+                            border: idx === displayProblems.length - 1 || isSavingOrder ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(56, 189, 248, 0.35)',
+                            color: idx === displayProblems.length - 1 || isSavingOrder ? '#475569' : '#38bdf8',
+                            borderRadius: '6px',
+                            padding: '4px 7px',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            cursor: idx === displayProblems.length - 1 || isSavingOrder ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <ArrowDown size={12} />
+                          <span>Down</span>
+                        </button>
+                      </div>
+                    ) : (
+                      /* Outside Reorder Mode: Remove Problem Action */
+                      canManageProblems && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenRemoveDialog(problem)}
+                          disabled={isLifecycleLocked}
+                          className="btn-remove-problem"
+                          data-testid={`remove-problem-button-${probId}`}
+                          aria-label={`Remove ${problem.title} from contest`}
+                          title={
+                            isLifecycleLocked
+                              ? `Cannot remove problems while contest is ${runtimeState}`
+                              : 'Remove problem from this contest'
+                          }
+                          style={{
+                            background: isLifecycleLocked ? 'rgba(255, 255, 255, 0.04)' : 'rgba(239, 68, 68, 0.12)',
+                            border: isLifecycleLocked ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(239, 68, 68, 0.3)',
+                            color: isLifecycleLocked ? '#64748b' : '#f87171',
+                            borderRadius: '6px',
+                            padding: '3px 8px',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            cursor: isLifecycleLocked ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {isLifecycleLocked ? <Lock size={11} /> : <Trash2 size={11} />}
+                          <span>Remove</span>
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 

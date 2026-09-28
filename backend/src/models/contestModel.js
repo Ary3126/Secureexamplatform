@@ -879,6 +879,153 @@ class ContestModel {
   }
 
   /**
+   * Safely update the order of problems attached to a contest with transactional row locking
+   * @param {number|string} contestId
+   * @param {Array<number|string>} orderedProblemIds - Array of problem IDs in the desired order
+   * @param {Object|null} actor
+   * @param {import('express').Request|null} req
+   * @returns {Promise<{success?: boolean, locked?: boolean, runtimeState?: string, message?: string, notFound?: boolean, invalid?: boolean, problems?: Array<Object>}>}
+   */
+  static async reorderContestProblemsWithSafety(contestId, orderedProblemIds, actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      // 1. Lock contest row for update to guarantee authoritative runtimeState
+      const cRes = await client.query(`
+        SELECT id, start_time AS "startTime", end_time AS "endTime", status
+        FROM contests
+        WHERE id = $1
+        FOR UPDATE;
+      `, [contestId]);
+
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true, resource: 'contest' };
+      }
+
+      const lockedContest = cRes.rows[0];
+      const runtimeState = getContestRuntimeState(lockedContest);
+
+      if (isLifecycleMutationLocked(runtimeState)) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState,
+          message: getProblemMutationLockMessage(runtimeState),
+        };
+      }
+
+      // 2. Fetch current attached problems under lock
+      const currentRes = await client.query(`
+        SELECT problem_id AS "problemId"
+        FROM contest_problems
+        WHERE contest_id = $1;
+      `, [contestId]);
+
+      const currentProblemIds = currentRes.rows.map(r => r.problemId);
+      if (currentProblemIds.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, invalid: true, message: 'Contest has no attached problems to order' };
+      }
+
+      // 3. Validate count matches
+      if (orderedProblemIds.length !== currentProblemIds.length) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          invalid: true,
+          message: `Supplied problem count (${orderedProblemIds.length}) does not match contest attached problem count (${currentProblemIds.length})`,
+        };
+      }
+
+      // 4. Validate all supplied IDs are positive integers and unique
+      const seen = new Set();
+      for (const rawId of orderedProblemIds) {
+        const idNum = parseInt(rawId, 10);
+        if (isNaN(idNum) || idNum <= 0) {
+          await client.query('ROLLBACK');
+          return { success: false, invalid: true, message: 'Invalid problem ID in ordering list' };
+        }
+        if (seen.has(idNum)) {
+          await client.query('ROLLBACK');
+          return { success: false, invalid: true, message: `Duplicate problem ID ${idNum} in ordering list` };
+        }
+        seen.add(idNum);
+      }
+
+      // 5. Validate that every current problem ID is present and no foreign problem IDs exist
+      const currentSet = new Set(currentProblemIds);
+      for (const id of seen) {
+        if (!currentSet.has(id)) {
+          await client.query('ROLLBACK');
+          return {
+            success: false,
+            invalid: true,
+            message: `Problem ID ${id} is not attached to this contest`,
+          };
+        }
+      }
+
+      // 6. Execute atomic ordering updates (1-indexed problem_order from 1 to N)
+      for (let i = 0; i < orderedProblemIds.length; i++) {
+        const probId = parseInt(orderedProblemIds[i], 10);
+        const orderNum = i + 1;
+        await client.query(`
+          UPDATE contest_problems
+          SET problem_order = $1
+          WHERE contest_id = $2 AND problem_id = $3;
+        `, [orderNum, contestId, probId]);
+      }
+
+      // 7. Retrieve updated problems list ordered by problem_order ASC, problem_id ASC
+      const updatedRes = await client.query(`
+        SELECT 
+          p.id AS "problemId",
+          p.title,
+          p.description,
+          p.difficulty,
+          p.coding_mode AS "codingMode",
+          p.starter_templates AS "starterTemplates",
+          cp.problem_order AS "problemOrder",
+          cp.points
+        FROM contest_problems cp
+        JOIN problems p ON cp.problem_id = p.id
+        WHERE cp.contest_id = $1
+        ORDER BY cp.problem_order ASC, p.id ASC;
+      `, [contestId]);
+
+      // 8. Audit log
+      if (actor) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'CONTEST_PROBLEMS_REORDERED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'success',
+          metadata: {
+            problemCount: orderedProblemIds.length,
+            orderedProblemIds: orderedProblemIds.map(id => parseInt(id, 10)),
+          },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+      return { success: true, problems: updatedRes.rows };
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Safely bulk remove/clear problems from a contest
    */
   static async bulkRemoveProblemsWithSafety(contestId, problemIds = null, actor = null, req = null) {

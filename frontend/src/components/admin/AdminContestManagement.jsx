@@ -813,6 +813,7 @@ export default function AdminContestManagement({
                     onRetry={() => onInspectContest && onInspectContest(inspectedContest.id)}
                     onProblemAdded={() => onInspectContest && onInspectContest(inspectedContest.id)}
                     onProblemRemoved={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                    onProblemReordered={() => onInspectContest && onInspectContest(inspectedContest.id)}
                   />
                 </>
               )}
