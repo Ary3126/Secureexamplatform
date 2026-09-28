@@ -498,14 +498,17 @@ const validateUpdateProblem = (req, res, next) => {
  * Validate problem assignment to contest
  */
 const validateAddProblemToContest = (req, res, next) => {
-  const { problemId, problemOrder, points } = req.body;
+  const { problemId, problemOrder, points } = req.body || {};
   const errors = [];
 
-  if (req.params.id !== undefined && (isNaN(parseInt(req.params.id, 10)) || parseInt(req.params.id, 10) <= 0)) {
+  const rawContestId = req.params.contestId || req.params.id;
+  const numContestId = Number(rawContestId);
+  if (rawContestId !== undefined && (!Number.isInteger(numContestId) || numContestId <= 0)) {
     errors.push('A valid positive integer contest ID is required.');
   }
 
-  if (problemId === undefined || isNaN(parseInt(problemId, 10)) || parseInt(problemId, 10) <= 0) {
+  const numProblemId = Number(problemId);
+  if (problemId === undefined || !Number.isInteger(numProblemId) || numProblemId <= 0) {
     errors.push('A valid positive integer problemId is required.');
   }
 
@@ -536,6 +539,66 @@ const validateAddProblemToContest = (req, res, next) => {
 };
 
 /**
+ * Validate bulk problem assignment to contest
+ */
+const validateBulkAddContestProblems = (req, res, next) => {
+  const rawContestId = req.params.contestId || req.params.id;
+  const errors = [];
+
+  const numContestId = Number(rawContestId);
+  if (rawContestId !== undefined && (!Number.isInteger(numContestId) || numContestId <= 0)) {
+    errors.push('A valid positive integer contest ID is required.');
+  }
+
+  const { problems } = req.body || {};
+  if (!problems || !Array.isArray(problems) || problems.length === 0) {
+    errors.push('A non-empty array of problems is required.');
+  } else if (problems.length > 100) {
+    errors.push('Problems array exceeds maximum allowed limit of 100 items.');
+  } else {
+    const seen = new Set();
+    for (let i = 0; i < problems.length; i++) {
+      const item = problems[i];
+      if (!item || typeof item !== 'object') {
+        errors.push(`Invalid problem entry at index ${i}. Must be an object.`);
+        continue;
+      }
+      const numPId = Number(item.problemId || item.id);
+      if (!Number.isInteger(numPId) || numPId <= 0) {
+        errors.push(`Invalid problemId at index ${i}. Must be a positive integer.`);
+      } else if (seen.has(numPId)) {
+        errors.push(`Duplicate problemId ${numPId} at index ${i}. Each problem must be unique.`);
+      } else {
+        seen.add(numPId);
+      }
+      if (item.points !== undefined) {
+        const numPts = Number(item.points);
+        if (!Number.isInteger(numPts) || numPts <= 0 || numPts > 100000) {
+          errors.push(`Invalid points at index ${i}. Points must be a positive integer (max 100000).`);
+        }
+      }
+      if (item.problemOrder !== undefined || item.order !== undefined) {
+        const numOrd = Number(item.problemOrder || item.order);
+        if (!Number.isInteger(numOrd) || numOrd <= 0) {
+          errors.push(`Invalid problemOrder at index ${i}. Problem order must be a positive integer.`);
+        }
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed for bulk adding problems to contest',
+      errors,
+    });
+  }
+
+  next();
+};
+
+/**
  * Validate problem removal from contest
  */
 const validateRemoveProblemFromContest = (req, res, next) => {
@@ -543,11 +606,13 @@ const validateRemoveProblemFromContest = (req, res, next) => {
   const rawProblemId = req.params.problemId;
   const errors = [];
 
-  if (!rawContestId || isNaN(parseInt(rawContestId, 10)) || parseInt(rawContestId, 10) <= 0) {
+  const numContestId = Number(rawContestId);
+  if (!rawContestId || !Number.isInteger(numContestId) || numContestId <= 0) {
     errors.push('A valid positive integer contest ID is required.');
   }
 
-  if (!rawProblemId || isNaN(parseInt(rawProblemId, 10)) || parseInt(rawProblemId, 10) <= 0) {
+  const numProblemId = Number(rawProblemId);
+  if (!rawProblemId || !Number.isInteger(numProblemId) || numProblemId <= 0) {
     errors.push('A valid positive integer problemId is required.');
   }
 
@@ -570,7 +635,8 @@ const validateReorderContestProblems = (req, res, next) => {
   const rawContestId = req.params.contestId || req.params.id;
   const errors = [];
 
-  if (!rawContestId || isNaN(parseInt(rawContestId, 10)) || parseInt(rawContestId, 10) <= 0) {
+  const numContestId = Number(rawContestId);
+  if (!rawContestId || !Number.isInteger(numContestId) || numContestId <= 0) {
     errors.push('A valid positive integer contest ID is required.');
   }
 
@@ -579,12 +645,14 @@ const validateReorderContestProblems = (req, res, next) => {
 
   if (!candidateList || !Array.isArray(candidateList) || candidateList.length === 0) {
     errors.push('A non-empty array of problem IDs or ordering objects is required.');
+  } else if (candidateList.length > 100) {
+    errors.push('Problem ordering array exceeds maximum allowed limit of 100 items.');
   } else {
     const seen = new Set();
     for (const item of candidateList) {
       const rawId = typeof item === 'object' && item !== null ? (item.problemId || item.id) : item;
-      const idNum = parseInt(rawId, 10);
-      if (isNaN(idNum) || idNum <= 0) {
+      const idNum = Number(rawId);
+      if (!Number.isInteger(idNum) || idNum <= 0) {
         errors.push(`Invalid problem ID: ${rawId}. Problem ID must be a positive integer.`);
         break;
       }
@@ -614,6 +682,7 @@ module.exports = {
   validateCreateProblem,
   validateUpdateProblem,
   validateAddProblemToContest,
+  validateBulkAddContestProblems,
   validateRemoveProblemFromContest,
   validateReorderContestProblems,
 };

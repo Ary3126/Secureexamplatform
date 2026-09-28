@@ -7,6 +7,7 @@ const {
   validateCreateContest,
   validateUpdateContest,
   validateAddProblemToContest,
+  validateBulkAddContestProblems,
   validateRemoveProblemFromContest,
   validateReorderContestProblems,
 } = require('../middleware/contestValidation');
@@ -126,6 +127,7 @@ router.post(
   '/:id/problems/bulk',
   authorizeRoles('professor', 'contest_admin', 'super_admin'),
   contestActionRateLimiter,
+  validateBulkAddContestProblems,
   contestController.bulkAddProblemsToContest
 );
 router.put(

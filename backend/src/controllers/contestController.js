@@ -415,14 +415,22 @@ const publishContest = async (req, res, next) => {
  */
 const getContestProblems = async (req, res, next) => {
   try {
-    const { id: contestId } = req.params;
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
 
-    const contest = await ContestModel.findContestById(contestId);
+    const contest = await ContestModel.findContestById(contestIdNum);
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${contestId} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -432,7 +440,7 @@ const getContestProblems = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: { attemptedAction: 'GET_CONTEST_PROBLEMS' },
         req,
@@ -444,7 +452,7 @@ const getContestProblems = async (req, res, next) => {
       });
     }
 
-    const problems = await ContestModel.getContestProblems(contestId);
+    const problems = await ContestModel.getContestProblems(contestIdNum);
 
     // Sanitize problem output: only return metadata appropriate for admin contest problem list
     // Strictly exclude hidden test cases, expected outputs, solutions, and internal secrets
@@ -461,7 +469,7 @@ const getContestProblems = async (req, res, next) => {
 
     return res.status(200).json({
       status: 'success',
-      contestId: Number(contestId),
+      contestId: contestIdNum,
       count: sanitizedProblems.length,
       problems: sanitizedProblems,
     });
@@ -476,9 +484,9 @@ const getContestProblems = async (req, res, next) => {
  */
 const addProblemToContest = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const contestId = parseInt(id, 10);
-    if (isNaN(contestId) || contestId <= 0) {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestId = Number(rawContestId);
+    if (!Number.isInteger(contestId) || contestId <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -486,9 +494,9 @@ const addProblemToContest = async (req, res, next) => {
       });
     }
 
-    const { problemId, points, problemOrder } = req.body;
-    const problemIdNum = parseInt(problemId, 10);
-    if (isNaN(problemIdNum) || problemIdNum <= 0) {
+    const { problemId, points, problemOrder } = req.body || {};
+    const problemIdNum = Number(problemId);
+    if (!Number.isInteger(problemIdNum) || problemIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -688,8 +696,8 @@ const addProblemToContest = async (req, res, next) => {
 const removeProblemFromContest = async (req, res, next) => {
   try {
     const rawContestId = req.params.contestId || req.params.id;
-    const contestIdNum = parseInt(rawContestId, 10);
-    if (isNaN(contestIdNum) || contestIdNum <= 0) {
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -698,8 +706,8 @@ const removeProblemFromContest = async (req, res, next) => {
     }
 
     const { problemId } = req.params;
-    const problemIdNum = parseInt(problemId, 10);
-    if (isNaN(problemIdNum) || problemIdNum <= 0) {
+    const problemIdNum = Number(problemId);
+    if (!Number.isInteger(problemIdNum) || problemIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -824,8 +832,17 @@ const bulkAddProblemsToContest = async (req, res, next) => {
     if ((req.body?.problemIds || req.body?.orderedProblemIds) && !req.body?.problems) {
       return reorderContestProblems(req, res, next);
     }
-    const { id: contestId } = req.params;
-    const { problems } = req.body;
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const { problems } = req.body || {};
 
     if (!Array.isArray(problems) || problems.length === 0) {
       return res.status(400).json({
@@ -835,6 +852,15 @@ const bulkAddProblemsToContest = async (req, res, next) => {
       });
     }
 
+    if (problems.length > 100) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Problems array exceeds maximum allowed limit of 100 items.',
+      });
+    }
+
+    const seenProblemIds = new Set();
     for (let i = 0; i < problems.length; i++) {
       const item = problems[i];
       if (!item || typeof item !== 'object') {
@@ -852,6 +878,15 @@ const bulkAddProblemsToContest = async (req, res, next) => {
           message: `Invalid problemId at index ${i}. Must be a positive integer.`,
         });
       }
+      if (seenProblemIds.has(numPId)) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: `Duplicate problemId ${numPId} at index ${i}. Each problem must be unique.`,
+        });
+      }
+      seenProblemIds.add(numPId);
+
       if (item.points !== undefined) {
         const numPts = Number(item.points);
         if (!Number.isInteger(numPts) || numPts <= 0 || numPts > 100000) {
@@ -874,12 +909,12 @@ const bulkAddProblemsToContest = async (req, res, next) => {
       }
     }
 
-    const contest = await ContestModel.findContestById(contestId);
+    const contest = await ContestModel.findContestById(contestIdNum);
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${contestId} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -888,7 +923,7 @@ const bulkAddProblemsToContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: { attemptedAction: 'CONTEST_PROBLEM_BULK_ADD' },
         req,
@@ -907,7 +942,7 @@ const bulkAddProblemsToContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
@@ -923,13 +958,47 @@ const bulkAddProblemsToContest = async (req, res, next) => {
       });
     }
 
-    const bulkResult = await ContestModel.bulkAddProblemsWithSafety(contestId, problems, req.user, req);
+    // Verify problem accessibility (BOLA & private problem protection) for each problem
+    for (const item of problems) {
+      const numPId = Number(item.problemId || item.id);
+      const problem = await ProblemModel.findProblemById(numPId);
+      if (!problem) {
+        return res.status(404).json({
+          status: 'error',
+          statusCode: 404,
+          message: `Problem with ID ${numPId} not found`,
+        });
+      }
+      if (req.user.role === 'professor') {
+        const scope = (problem.accessScope || problem.access_scope || 'public').toLowerCase();
+        const isOwner = problem.createdBy === req.user.id || problem.created_by === req.user.id;
+        const isPub = problem.isPublished !== undefined ? problem.isPublished : problem.is_published;
+        if ((scope !== 'public' || isPub === false) && !isOwner) {
+          await AuditLogger.logAction({
+            actor: req.user,
+            action: 'PRIVILEGED_ACTION_DENIED',
+            resourceType: 'problem',
+            resourceId: numPId,
+            outcome: 'denied',
+            metadata: { attemptedAction: 'ATTACH_INACCESSIBLE_PROBLEM', contestId: contestIdNum },
+            req,
+          });
+          return res.status(403).json({
+            status: 'error',
+            statusCode: 403,
+            message: 'Forbidden: You do not have permission to attach this problem',
+          });
+        }
+      }
+    }
+
+    const bulkResult = await ContestModel.bulkAddProblemsWithSafety(contestIdNum, problems, req.user, req);
     if (bulkResult.locked) {
       await AuditLogger.logAction({
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
@@ -960,7 +1029,16 @@ const bulkAddProblemsToContest = async (req, res, next) => {
  */
 const bulkRemoveProblemsFromContest = async (req, res, next) => {
   try {
-    const { id: contestId } = req.params;
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
     const { problemIds } = req.body || {};
 
     if (problemIds !== undefined && problemIds !== null) {
@@ -971,9 +1049,16 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
           message: 'problemIds must be an array of positive integers.',
         });
       }
+      if (problemIds.length > 100) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'problemIds array exceeds maximum allowed limit of 100 items.',
+        });
+      }
       for (const id of problemIds) {
-        const idNum = parseInt(id, 10);
-        if (isNaN(idNum) || idNum <= 0) {
+        const idNum = Number(id);
+        if (!Number.isInteger(idNum) || idNum <= 0) {
           return res.status(400).json({
             status: 'error',
             statusCode: 400,
@@ -983,12 +1068,12 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
       }
     }
 
-    const contest = await ContestModel.findContestById(contestId);
+    const contest = await ContestModel.findContestById(contestIdNum);
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${contestId} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -997,7 +1082,7 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: { attemptedAction: 'CONTEST_PROBLEM_BULK_REMOVE' },
         req,
@@ -1016,7 +1101,7 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
@@ -1032,13 +1117,13 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
       });
     }
 
-    const bulkResult = await ContestModel.bulkRemoveProblemsWithSafety(contestId, problemIds, req.user, req);
+    const bulkResult = await ContestModel.bulkRemoveProblemsWithSafety(contestIdNum, problemIds, req.user, req);
     if (bulkResult.locked) {
       await AuditLogger.logAction({
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
@@ -1056,7 +1141,7 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
 
     return res.status(200).json({
       message: 'Problems removed from contest successfully',
-      contestId,
+      contestId: contestIdNum,
     });
   } catch (error) {
     next(error);
@@ -1230,8 +1315,8 @@ const getContestLeaderboard = async (req, res, next) => {
 const reorderContestProblems = async (req, res, next) => {
   try {
     const rawContestId = req.params.contestId || req.params.id;
-    const contestIdNum = parseInt(rawContestId, 10);
-    if (isNaN(contestIdNum) || contestIdNum <= 0) {
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -1241,15 +1326,15 @@ const reorderContestProblems = async (req, res, next) => {
 
     // Parse ordered problem IDs from body (support { problemIds: [...] }, { orderedProblemIds: [...] }, or { order: [...] })
     let orderedProblemIds = null;
-    if (Array.isArray(req.body.problemIds)) {
+    if (Array.isArray(req.body?.problemIds)) {
       orderedProblemIds = req.body.problemIds;
-    } else if (Array.isArray(req.body.orderedProblemIds)) {
+    } else if (Array.isArray(req.body?.orderedProblemIds)) {
       orderedProblemIds = req.body.orderedProblemIds;
-    } else if (Array.isArray(req.body.problems)) {
+    } else if (Array.isArray(req.body?.problems)) {
       orderedProblemIds = req.body.problems
         .sort((a, b) => (parseInt(a.problemOrder || a.order, 10) || 0) - (parseInt(b.problemOrder || b.order, 10) || 0))
         .map(p => p.problemId || p.id);
-    } else if (Array.isArray(req.body.order)) {
+    } else if (Array.isArray(req.body?.order)) {
       orderedProblemIds = req.body.order
         .sort((a, b) => (parseInt(a.problemOrder || a.order, 10) || 0) - (parseInt(b.problemOrder || b.order, 10) || 0))
         .map(p => p.problemId || p.id);
@@ -1263,6 +1348,25 @@ const reorderContestProblems = async (req, res, next) => {
         statusCode: 400,
         message: 'A non-empty array of problem IDs is required for reordering.',
       });
+    }
+
+    if (orderedProblemIds.length > 100) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Problem ordering array exceeds maximum allowed limit of 100 items.',
+      });
+    }
+
+    for (let i = 0; i < orderedProblemIds.length; i++) {
+      const pIdNum = Number(orderedProblemIds[i]);
+      if (!Number.isInteger(pIdNum) || pIdNum <= 0) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: `Invalid problem ID in ordering array: ${orderedProblemIds[i]}. Problem ID must be a positive integer.`,
+        });
+      }
     }
 
     // 1. Resolve contest resource
