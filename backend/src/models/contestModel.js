@@ -636,7 +636,7 @@ class ContestModel {
    * @param {import('express').Request|null} req
    * @returns {Promise<{success?: boolean, mapping?: Object, locked?: boolean, runtimeState?: string, message?: string, duplicate?: boolean, notFound?: boolean, resource?: string}>}
    */
-  static async addProblemToContestWithSafety({ contestId, problemId, points = 100, problemOrder = 1 }, actor = null, req = null) {
+  static async addProblemToContestWithSafety({ contestId, problemId, points = 100, problemOrder }, actor = null, req = null) {
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
@@ -684,12 +684,21 @@ class ContestModel {
         return { success: false, duplicate: true };
       }
 
-      // 4. Safe insert
+      // 4. Safe insert: auto-assign problem order if not specified
+      let finalOrder = parseInt(problemOrder, 10);
+      if (isNaN(finalOrder) || finalOrder <= 0) {
+        const orderRes = await client.query(
+          'SELECT COALESCE(MAX(problem_order), 0) + 1 AS "nextOrder" FROM contest_problems WHERE contest_id = $1',
+          [contestId]
+        );
+        finalOrder = parseInt(orderRes.rows[0].nextOrder, 10);
+      }
+
       const insertRes = await client.query(`
         INSERT INTO contest_problems (contest_id, problem_id, points, problem_order)
         VALUES ($1, $2, $3, $4)
         RETURNING contest_id AS "contestId", problem_id AS "problemId", points, problem_order AS "problemOrder";
-      `, [contestId, problemId, points, problemOrder]);
+      `, [contestId, problemId, points, finalOrder]);
 
       const mapping = insertRes.rows[0];
 
@@ -700,7 +709,7 @@ class ContestModel {
           resourceType: 'contest',
           resourceId: contestId,
           outcome: 'success',
-          metadata: { problemId, points, problemOrder },
+          metadata: { problemId, points, problemOrder: finalOrder },
           client,
           req,
         });
@@ -712,6 +721,9 @@ class ContestModel {
       try {
         await client.query('ROLLBACK');
       } catch (rbErr) {}
+      if (err.code === '23505') {
+        return { success: false, duplicate: true };
+      }
       throw err;
     } finally {
       client.release();

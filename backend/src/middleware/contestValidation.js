@@ -501,6 +501,10 @@ const validateAddProblemToContest = (req, res, next) => {
   const { problemId, problemOrder, points } = req.body;
   const errors = [];
 
+  if (req.params.id !== undefined && (isNaN(parseInt(req.params.id, 10)) || parseInt(req.params.id, 10) <= 0)) {
+    errors.push('A valid positive integer contest ID is required.');
+  }
+
   if (problemId === undefined || isNaN(parseInt(problemId, 10)) || parseInt(problemId, 10) <= 0) {
     errors.push('A valid positive integer problemId is required.');
   }

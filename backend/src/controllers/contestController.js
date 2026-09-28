@@ -476,8 +476,25 @@ const getContestProblems = async (req, res, next) => {
  */
 const addProblemToContest = async (req, res, next) => {
   try {
-    const { id: contestId } = req.params;
+    const { id } = req.params;
+    const contestId = parseInt(id, 10);
+    if (isNaN(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
     const { problemId, points, problemOrder } = req.body;
+    const problemIdNum = parseInt(problemId, 10);
+    if (isNaN(problemIdNum) || problemIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'A valid positive integer problemId is required.',
+      });
+    }
 
     // 1. Resolve contest resource
     const contest = await ContestModel.findContestById(contestId);
@@ -497,7 +514,7 @@ const addProblemToContest = async (req, res, next) => {
         resourceType: 'contest',
         resourceId: contestId,
         outcome: 'denied',
-        metadata: { attemptedAction: 'CONTEST_PROBLEM_ADDED', problemId },
+        metadata: { attemptedAction: 'CONTEST_PROBLEM_ADDED', problemId: problemIdNum },
         req,
       });
       return res.status(403).json({
@@ -520,7 +537,7 @@ const addProblemToContest = async (req, res, next) => {
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
           operation: 'add',
-          problemId,
+          problemId: problemIdNum,
           runtimeState,
         },
         req,
@@ -533,21 +550,48 @@ const addProblemToContest = async (req, res, next) => {
     }
 
     // 4. Validate problem existence
-    const problem = await ProblemModel.findProblemById(problemId);
+    const problem = await ProblemModel.findProblemById(problemIdNum);
     if (!problem) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Problem with ID ${problemId} not found`,
+        message: `Problem with ID ${problemIdNum} not found`,
       });
     }
 
-    // 5. Atomic insert with row-level locking & audit logging
+    // 4b. Validate problem accessibility (BOLA & private problem protection)
+    if (req.user.role === 'professor') {
+      const scope = (problem.accessScope || problem.access_scope || 'public').toLowerCase();
+      const isOwner = problem.createdBy === req.user.id || problem.created_by === req.user.id;
+      const isPub = problem.isPublished !== undefined ? problem.isPublished : problem.is_published;
+      if ((scope !== 'public' || isPub === false) && !isOwner) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'problem',
+          resourceId: problemIdNum,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'ATTACH_INACCESSIBLE_PROBLEM', contestId },
+          req,
+        });
+        return res.status(403).json({
+          status: 'error',
+          statusCode: 403,
+          message: 'Forbidden: You do not have permission to attach this problem',
+        });
+      }
+    }
+
+    // 5. Parse points and problemOrder
+    const parsedPoints = points !== undefined ? parseInt(points, 10) : 100;
+    const parsedOrder = problemOrder !== undefined ? parseInt(problemOrder, 10) : undefined;
+
+    // 6. Atomic insert with row-level locking & audit logging
     const addResult = await ContestModel.addProblemToContestWithSafety({
       contestId,
-      problemId,
-      points: points || 100,
-      problemOrder: problemOrder || 1,
+      problemId: problemIdNum,
+      points: parsedPoints,
+      problemOrder: parsedOrder,
     }, req.user, req);
 
     if (addResult.locked) {
@@ -560,7 +604,7 @@ const addProblemToContest = async (req, res, next) => {
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
           operation: 'add',
-          problemId,
+          problemId: problemIdNum,
           runtimeState: addResult.runtimeState,
         },
         req,
@@ -585,7 +629,7 @@ const addProblemToContest = async (req, res, next) => {
         return res.status(404).json({
           status: 'error',
           statusCode: 404,
-          message: `Problem with ID ${problemId} not found`,
+          message: `Problem with ID ${problemIdNum} not found`,
         });
       }
       return res.status(404).json({
@@ -596,8 +640,18 @@ const addProblemToContest = async (req, res, next) => {
     }
 
     return res.status(201).json({
+      status: 'success',
       message: 'Problem added to contest successfully',
       mapping: addResult.mapping,
+      problem: {
+        problemId: problem.id,
+        title: problem.title,
+        difficulty: problem.difficulty,
+        codingMode: problem.codingMode || problem.coding_mode,
+        points: addResult.mapping.points,
+        problemOrder: addResult.mapping.problemOrder,
+        status: problem.isActive !== false ? 'active' : 'inactive',
+      },
     });
   } catch (error) {
     next(error);

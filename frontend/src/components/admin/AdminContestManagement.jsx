@@ -802,13 +802,16 @@ export default function AdminContestManagement({
                     </div>
                   )}
 
-                  {/* Attached Problems List (Phase 7.5.5.2) */}
+                  {/* Attached Problems List (Phase 7.5.5.2 & 7.5.5.3) */}
                   <AdminContestProblemList
                     contestId={inspectedContest.id}
+                    contest={inspectedContest}
+                    currentUser={currentUser}
                     problems={inspectedContest.problems || []}
                     loading={inspectLoading}
                     token={currentUser?.token}
                     onRetry={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                    onProblemAdded={() => onInspectContest && onInspectContest(inspectedContest.id)}
                   />
                 </>
               )}
