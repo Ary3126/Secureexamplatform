@@ -7,6 +7,7 @@ const {
   validateCreateContest,
   validateUpdateContest,
   validateAddProblemToContest,
+  validateRemoveProblemFromContest,
 } = require('../middleware/contestValidation');
 const {
   contestActionRateLimiter,
@@ -152,6 +153,7 @@ router.delete(
   '/:contestId/problems/:problemId',
   authorizeRoles('professor', 'contest_admin', 'super_admin'),
   contestActionRateLimiter,
+  validateRemoveProblemFromContest,
   contestController.removeProblemFromContest
 );
 

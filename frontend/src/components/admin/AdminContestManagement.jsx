@@ -812,6 +812,7 @@ export default function AdminContestManagement({
                     token={currentUser?.token}
                     onRetry={() => onInspectContest && onInspectContest(inspectedContest.id)}
                     onProblemAdded={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                    onProblemRemoved={() => onInspectContest && onInspectContest(inspectedContest.id)}
                   />
                 </>
               )}

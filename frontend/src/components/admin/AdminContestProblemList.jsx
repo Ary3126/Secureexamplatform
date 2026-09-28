@@ -12,6 +12,7 @@ import {
   X,
   Check,
   Lock,
+  Trash2,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 
@@ -19,12 +20,13 @@ import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
  * AdminContestProblemList
  *
  * Dedicated component for viewing and managing problems attached to a contest.
- * Phase 7.5.5.2 (List) & Phase 7.5.5.3 (Add Problem):
+ * Phase 7.5.5.2 (List), Phase 7.5.5.3 (Add Problem), Phase 7.5.5.4 (Remove Problem):
  * - Displays attached contest problems with order, points, badges, total tally
  * - Allows authorized managers (super_admin, contest_admin, owner professor) to add
  *   existing problems from the platform problem bank
+ * - Allows authorized managers to safely remove attached problems (deletes relation ONLY)
  * - Enforces client-side duplicate prevention and lifecycle lock warnings
- * - Strictly excludes Remove Problem and Drag-and-drop ordering (deferred to 7.5.5.4+)
+ * - Strictly excludes Drag-and-drop ordering (deferred to 7.5.5.5+)
  */
 export default function AdminContestProblemList({
   contestId,
@@ -35,6 +37,7 @@ export default function AdminContestProblemList({
   error: controlledError,
   onRetry: controlledOnRetry,
   onProblemAdded,
+  onProblemRemoved,
   token,
 }) {
   const [internalProblems, setInternalProblems] = useState(controlledProblems || []);
@@ -56,10 +59,17 @@ export default function AdminContestProblemList({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalSubmitError, setModalSubmitError] = useState(null);
 
-  const searchInputRef = useRef(null);
+  // Remove Problem Dialog State (Phase 7.5.5.4)
+  const [problemToRemove, setProblemToRemove] = useState(null);
+  const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState(null);
 
-  // Helper: Determine if current user has permission to add problems
-  const canAddProblems = (() => {
+  const searchInputRef = useRef(null);
+  const cancelRemoveBtnRef = useRef(null);
+
+  // Helper: Determine if current user has permission to manage (add/remove) problems
+  const canManageProblems = (() => {
     if (!currentUser) return false;
     const role = currentUser.role;
     if (role === 'super_admin' || role === 'contest_admin') return true;
@@ -69,6 +79,7 @@ export default function AdminContestProblemList({
     }
     return false;
   })();
+  const canAddProblems = canManageProblems;
 
   // Helper: Lifecycle locked state
   const runtimeState = (contest?.runtimeState || contest?.status || '').toLowerCase();
@@ -266,6 +277,87 @@ export default function AdminContestProblemList({
       setModalSubmitError(err.message || 'Error attaching problem to contest');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Open Remove Dialog
+  const handleOpenRemoveDialog = (problem) => {
+    if (isLifecycleLocked) return;
+    setProblemToRemove(problem);
+    setIsRemoveDialogOpen(true);
+    setRemoveError(null);
+  };
+
+  // Close Remove Dialog
+  const handleCloseRemoveDialog = () => {
+    if (isRemoving) return;
+    setIsRemoveDialogOpen(false);
+    setProblemToRemove(null);
+    setRemoveError(null);
+  };
+
+  // Keyboard accessibility for Remove Dialog (Escape to close)
+  useEffect(() => {
+    if (!isRemoveDialogOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !isRemoving) {
+        handleCloseRemoveDialog();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isRemoveDialogOpen, isRemoving]);
+
+  // Focus cancel button when remove dialog opens
+  useEffect(() => {
+    if (isRemoveDialogOpen && cancelRemoveBtnRef.current) {
+      setTimeout(() => cancelRemoveBtnRef.current?.focus(), 50);
+    }
+  }, [isRemoveDialogOpen]);
+
+  // Execute Remove Problem API request (Phase 7.5.5.4)
+  const handleConfirmRemove = async () => {
+    if (!problemToRemove || isRemoving) return;
+    setIsRemoving(true);
+    setRemoveError(null);
+
+    try {
+      const authToken =
+        token || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+      const probId = problemToRemove.problemId || problemToRemove.id;
+
+      const res = await fetch(`/api/contests/${contestId}/problems/${probId}`, {
+        method: 'DELETE',
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        let msg = data.message;
+        if (res.status === 401) msg = 'Session expired. Please log in again.';
+        if (res.status === 403) msg = 'Forbidden: You do not have permission to remove this problem.';
+        if (res.status === 404) msg = data.message || 'Problem or contest not found.';
+        if (res.status === 409) msg = data.message || 'Contest is locked for problem modifications.';
+        if (res.status === 429) msg = 'Rate limit exceeded. Please wait a moment.';
+        throw new Error(msg || `Failed to remove problem (${res.status})`);
+      }
+
+      // Successful removal: close dialog, show success feedback, refresh list
+      const removedTitle = problemToRemove.title;
+      setIsRemoveDialogOpen(false);
+      setProblemToRemove(null);
+      setSuccessMessage(`"${removedTitle}" successfully removed from contest!`);
+      setTimeout(() => setSuccessMessage(null), 4000);
+
+      await fetchProblems();
+      if (onProblemRemoved) {
+        onProblemRemoved(probId, data);
+      }
+    } catch (err) {
+      setRemoveError(err.message || 'Error removing problem from contest');
+    } finally {
+      setIsRemoving(false);
     }
   };
 
@@ -603,7 +695,7 @@ export default function AdminContestProblemList({
                   </div>
                 </div>
 
-                {/* Right: Points badge and Status */}
+                {/* Right: Points badge, Status and Remove Action */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                   <span
                     data-testid={`problem-status-badge-${probId}`}
@@ -642,6 +734,40 @@ export default function AdminContestProblemList({
                   >
                     <Award size={12} /> {pts} pts
                   </span>
+
+                  {/* Remove Problem Action (Visible only to authorized users) */}
+                  {canManageProblems && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRemoveDialog(problem)}
+                      disabled={isLifecycleLocked}
+                      className="btn-remove-problem"
+                      data-testid={`remove-problem-button-${probId}`}
+                      aria-label={`Remove ${problem.title} from contest`}
+                      title={
+                        isLifecycleLocked
+                          ? `Cannot remove problems while contest is ${runtimeState}`
+                          : 'Remove problem from this contest'
+                      }
+                      style={{
+                        background: isLifecycleLocked ? 'rgba(255, 255, 255, 0.04)' : 'rgba(239, 68, 68, 0.12)',
+                        border: isLifecycleLocked ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(239, 68, 68, 0.3)',
+                        color: isLifecycleLocked ? '#64748b' : '#f87171',
+                        borderRadius: '6px',
+                        padding: '3px 8px',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        cursor: isLifecycleLocked ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {isLifecycleLocked ? <Lock size={11} /> : <Trash2 size={11} />}
+                      <span>Remove</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -1099,6 +1225,193 @@ export default function AdminContestProblemList({
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Remove Problem Confirmation Dialog (Phase 7.5.5.4) */}
+      {isRemoveDialogOpen && problemToRemove && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-problem-dialog-title"
+          data-testid="remove-problem-dialog"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isRemoving) handleCloseRemoveDialog();
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#1e293b',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '480px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Dialog Header */}
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Trash2 size={18} style={{ color: '#f87171' }} />
+                <h3
+                  id="remove-problem-dialog-title"
+                  data-testid="remove-problem-dialog-title"
+                  style={{ margin: 0, fontSize: '1rem', fontWeight: '700', color: '#f8fafc' }}
+                >
+                  Remove Problem from Contest
+                </h3>
+              </div>
+              <button
+                onClick={handleCloseRemoveDialog}
+                disabled={isRemoving}
+                data-testid="remove-dialog-close-button"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: isRemoving ? 'not-allowed' : 'pointer',
+                  padding: '4px',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Dialog Body */}
+            <div style={{ padding: '20px' }}>
+              <p
+                data-testid="remove-dialog-confirmation-text"
+                style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#e2e8f0', lineHeight: '1.5' }}
+              >
+                Are you sure you want to remove <strong>"{problemToRemove.title}"</strong> from this contest?
+              </p>
+
+              <div
+                data-testid="remove-dialog-warning-callout"
+                style={{
+                  backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  borderRadius: '6px',
+                  padding: '10px 12px',
+                  fontSize: '0.82rem',
+                  color: '#93c5fd',
+                  lineHeight: '1.4',
+                }}
+              >
+                <strong>Note:</strong> This removes the problem from this contest. The problem itself will remain available in the problem bank.
+              </div>
+
+              {removeError && (
+                <div
+                  role="alert"
+                  data-testid="remove-problem-error"
+                  style={{
+                    marginTop: '14px',
+                    padding: '10px 12px',
+                    borderRadius: '6px',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#fca5a5',
+                    fontSize: '0.82rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                  <span>{removeError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Dialog Footer */}
+            <div
+              style={{
+                padding: '12px 20px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                backgroundColor: 'rgba(15, 23, 42, 0.3)',
+              }}
+            >
+              <button
+                ref={cancelRemoveBtnRef}
+                type="button"
+                onClick={handleCloseRemoveDialog}
+                disabled={isRemoving}
+                data-testid="cancel-remove-problem-button"
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: '#cbd5e1',
+                  cursor: isRemoving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRemove}
+                disabled={isRemoving}
+                data-testid="confirm-remove-problem-button"
+                style={{
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  backgroundColor: isRemoving ? 'rgba(239, 68, 68, 0.4)' : '#dc2626',
+                  border: '1px solid rgba(239, 68, 68, 0.5)',
+                  color: '#ffffff',
+                  cursor: isRemoving ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                {isRemoving ? (
+                  <>
+                    <RotateCcw size={13} className="spin-icon" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} />
+                    <span>Remove Problem</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

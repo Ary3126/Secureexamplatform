@@ -529,10 +529,39 @@ const validateAddProblemToContest = (req, res, next) => {
   next();
 };
 
+/**
+ * Validate problem removal from contest
+ */
+const validateRemoveProblemFromContest = (req, res, next) => {
+  const rawContestId = req.params.contestId || req.params.id;
+  const rawProblemId = req.params.problemId;
+  const errors = [];
+
+  if (!rawContestId || isNaN(parseInt(rawContestId, 10)) || parseInt(rawContestId, 10) <= 0) {
+    errors.push('A valid positive integer contest ID is required.');
+  }
+
+  if (!rawProblemId || isNaN(parseInt(rawProblemId, 10)) || parseInt(rawProblemId, 10) <= 0) {
+    errors.push('A valid positive integer problemId is required.');
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed for removing problem from contest',
+      errors,
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   validateCreateContest,
   validateUpdateContest,
   validateCreateProblem,
   validateUpdateProblem,
   validateAddProblemToContest,
+  validateRemoveProblemFromContest,
 };

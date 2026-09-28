@@ -664,15 +664,33 @@ const addProblemToContest = async (req, res, next) => {
  */
 const removeProblemFromContest = async (req, res, next) => {
   try {
-    const { contestId, problemId } = req.params;
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = parseInt(rawContestId, 10);
+    if (isNaN(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const { problemId } = req.params;
+    const problemIdNum = parseInt(problemId, 10);
+    if (isNaN(problemIdNum) || problemIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem ID format. ID must be a positive integer.',
+      });
+    }
 
     // 1. Resolve contest resource
-    const contest = await ContestModel.findContestById(contestId);
+    const contest = await ContestModel.findContestById(contestIdNum);
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${contestId} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -682,9 +700,9 @@ const removeProblemFromContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
-        metadata: { attemptedAction: 'CONTEST_PROBLEM_REMOVED', problemId },
+        metadata: { attemptedAction: 'CONTEST_PROBLEM_REMOVED', problemId: problemIdNum },
         req,
       });
       return res.status(403).json({
@@ -702,12 +720,12 @@ const removeProblemFromContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
           operation: 'remove',
-          problemId,
+          problemId: problemIdNum,
           runtimeState,
         },
         req,
@@ -719,20 +737,30 @@ const removeProblemFromContest = async (req, res, next) => {
       });
     }
 
-    // 4. Atomic delete with row-level locking & audit logging
-    const removeResult = await ContestModel.removeProblemFromContestWithSafety(contestId, problemId, req.user, req);
+    // 4. Validate problem existence in catalog
+    const problem = await ProblemModel.findProblemById(problemIdNum);
+    if (!problem) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Problem with ID ${problemIdNum} not found`,
+      });
+    }
+
+    // 5. Atomic delete with row-level locking & audit logging
+    const removeResult = await ContestModel.removeProblemFromContestWithSafety(contestIdNum, problemIdNum, req.user, req);
 
     if (removeResult.locked) {
       await AuditLogger.logAction({
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: contestId,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: {
           attemptedAction: 'CONTEST_PROBLEM_MUTATION',
           operation: 'remove',
-          problemId,
+          problemId: problemIdNum,
           runtimeState: removeResult.runtimeState,
         },
         req,
@@ -753,9 +781,10 @@ const removeProblemFromContest = async (req, res, next) => {
     }
 
     return res.status(200).json({
+      status: 'success',
       message: 'Problem removed from contest successfully',
-      contestId,
-      problemId,
+      contestId: contestIdNum,
+      problemId: problemIdNum,
     });
   } catch (error) {
     next(error);
