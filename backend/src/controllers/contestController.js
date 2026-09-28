@@ -410,6 +410,67 @@ const publishContest = async (req, res, next) => {
 };
 
 /**
+ * List attached problems for a contest (restricted to authorized managers)
+ * @route GET /api/contests/:id/problems
+ */
+const getContestProblems = async (req, res, next) => {
+  try {
+    const { id: contestId } = req.params;
+
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    // Role-based authorization & ownership isolation
+    if (!canManageResource(req.user, contest)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestId,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'GET_CONTEST_PROBLEMS' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to view problems for this contest',
+      });
+    }
+
+    const problems = await ContestModel.getContestProblems(contestId);
+
+    // Sanitize problem output: only return metadata appropriate for admin contest problem list
+    // Strictly exclude hidden test cases, expected outputs, solutions, and internal secrets
+    const sanitizedProblems = problems.map((p) => ({
+      problemId: p.problemId,
+      title: p.title,
+      description: p.description,
+      difficulty: p.difficulty,
+      codingMode: p.codingMode || p.coding_mode,
+      problemOrder: p.problemOrder,
+      points: p.points,
+      status: 'active',
+    }));
+
+    return res.status(200).json({
+      status: 'success',
+      contestId: Number(contestId),
+      count: sanitizedProblems.length,
+      problems: sanitizedProblems,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Attach problem to contest
  * @route POST /api/contests/:id/problems
  */
@@ -972,6 +1033,7 @@ module.exports = {
   updateContest,
   deleteContest,
   publishContest,
+  getContestProblems,
   addProblemToContest,
   removeProblemFromContest,
   bulkAddProblemsToContest,

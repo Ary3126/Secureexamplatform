@@ -389,9 +389,9 @@ describe('Phase 7.5.4: Admin Contest Edit UI Logic Suite', () => {
       // same minute string, so end == start after toDateTimeLocalString conversion.
       // The validator correctly rejects this via "end <= start" branch.
       const fd = buildDefaultFormData(draftContest);
-      const start = new Date(now + 24 * 60 * 60 * 1000);
+      const start = new Date(Math.floor(now / 60000) * 60000 + 24 * 60 * 60 * 1000);
       fd.startTime = toDateTimeLocalString(start);
-      // 30s later rounds to same minute, so endTime == startTime string
+      // 30s later within same minute produces identical minute string
       fd.endTime = toDateTimeLocalString(new Date(start.getTime() + 30 * 1000));
       const errors = validate(fd, unlocked);
       // Either "end <= start" or "< 1 minute" is triggered

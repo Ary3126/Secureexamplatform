@@ -27,6 +27,7 @@ import {
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 import AdminContestCreateModal from './AdminContestCreateModal';
 import AdminContestEditModal from './AdminContestEditModal';
+import AdminContestProblemList from './AdminContestProblemList';
 import './adminContestManagement.css';
 
 /**
@@ -801,55 +802,14 @@ export default function AdminContestManagement({
                     </div>
                   )}
 
-                  {/* Attached Problems List */}
-                  <div>
-                    <div className="inspect-section-title">
-                      Attached Problems ({inspectedContest.problems?.length || 0})
-                    </div>
-                    {(!inspectedContest.problems || inspectedContest.problems.length === 0) ? (
-                      <div style={{ color: '#64748b', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                        No problems attached to this contest yet.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {inspectedContest.problems.map((p, idx) => (
-                          <div
-                            key={p.problemId || p.id}
-                            style={{
-                              background: 'rgba(30, 41, 59, 0.6)',
-                              border: '1px solid rgba(255, 255, 255, 0.06)',
-                              borderRadius: '8px',
-                              padding: '10px 14px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <div>
-                              <span style={{ fontWeight: '700', color: '#f8fafc', marginRight: '8px' }}>
-                                #{p.problemOrder || idx + 1}. {p.title}
-                              </span>
-                              <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'capitalize' }}>
-                                ({p.difficulty || 'medium'}, {p.codingMode || 'full_program'})
-                              </span>
-                            </div>
-                            <span
-                              style={{
-                                fontSize: '0.8rem',
-                                fontWeight: '700',
-                                color: '#38bdf8',
-                                background: 'rgba(56, 189, 248, 0.1)',
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                              }}
-                            >
-                              {p.points || 100} pts
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  {/* Attached Problems List (Phase 7.5.5.2) */}
+                  <AdminContestProblemList
+                    contestId={inspectedContest.id}
+                    problems={inspectedContest.problems || []}
+                    loading={inspectLoading}
+                    token={currentUser?.token}
+                    onRetry={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                  />
                 </>
               )}
             </div>

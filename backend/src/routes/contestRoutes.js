@@ -93,6 +93,17 @@ router.post(
 );
 
 /**
+ * @route GET /api/contests/:id/problems
+ * List contest problems (restricted to authorized managers)
+ */
+router.get(
+  '/:id/problems',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  mediumProtectionRateLimiter,
+  contestController.getContestProblems
+);
+
+/**
  * @route POST /api/contests/:id/problems
  * Assign a problem to a contest
  */
