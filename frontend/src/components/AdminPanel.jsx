@@ -477,25 +477,64 @@ function ContestsSection({ token, currentUser }) {
     }
   };
 
-  const handleArchiveContest = async (contestId) => {
+  const handleUnpublishContest = async (contestId) => {
     setIsProcessing(true);
     try {
-      const res = await fetch(`/api/contests/${contestId}`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/contests/${contestId}/unpublish`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: 'archived' }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         fetchContests();
         if (inspectedContest?.id === contestId) {
           handleInspectContest(contestId);
         }
+        return { success: true, contest: data.contest };
       } else {
-        const errData = await res.json();
-        alert(errData.message || 'Failed to archive contest');
+        alert(data.message || 'Failed to unpublish contest');
+        return { success: false, error: data.message };
+      }
+    } catch (err) {
+      console.error('Unpublish contest failed:', err);
+      return { success: false, error: err.message };
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleArchiveContest = async (contestId) => {
+    setIsProcessing(true);
+    try {
+      // First attempt POST /api/contests/:id/archive
+      let res = await fetch(`/api/contests/${contestId}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+
+      // If route not available, fallback to PATCH /api/contests/:id with status: 'archived'
+      if (res.status === 404) {
+        res = await fetch(`/api/contests/${contestId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ status: 'archived' }),
+        });
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        fetchContests();
+        if (inspectedContest?.id === contestId) {
+          handleInspectContest(contestId);
+        }
+        return { success: true, contest: data.contest };
+      } else {
+        alert(data.message || 'Failed to archive contest');
+        return { success: false, error: data.message };
       }
     } catch (err) {
       console.error('Archive contest failed:', err);
+      return { success: false, error: err.message };
     } finally {
       setIsProcessing(false);
     }
@@ -581,6 +620,7 @@ function ContestsSection({ token, currentUser }) {
       onInspectContest={handleInspectContest}
       onCloseInspect={() => setInspectedContest(null)}
       onPublishContest={handlePublishContest}
+      onUnpublishContest={handleUnpublishContest}
       onArchiveContest={handleArchiveContest}
       onUpdateContest={handleUpdateContest}
       onRetry={fetchContests}

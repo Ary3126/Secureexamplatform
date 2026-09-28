@@ -96,6 +96,28 @@ router.post(
 );
 
 /**
+ * @route POST /api/contests/:id/unpublish
+ * Unpublish an upcoming contest back to draft
+ */
+router.post(
+  '/:id/unpublish',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  contestController.unpublishContest
+);
+
+/**
+ * @route POST /api/contests/:id/archive
+ * Archive a contest (preserves all data, marks immutable)
+ */
+router.post(
+  '/:id/archive',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  contestController.archiveContest
+);
+
+/**
  * @route GET /api/contests/:id/problems
  * List contest problems (restricted to authorized managers)
  */

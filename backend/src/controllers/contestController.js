@@ -190,9 +190,33 @@ const updateContest = async (req, res, next) => {
 
     // 1. Authoritative server-side runtimeState check
     const runtimeState = getContestRuntimeState(contest);
-    const hasLifecycleField = startTime !== undefined || endTime !== undefined || status !== undefined;
 
-    if (hasLifecycleField && isLifecycleMutationLocked(runtimeState)) {
+    if (runtimeState === 'archived') {
+      const lockMessage = getLifecycleLockMessage(runtimeState);
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: id,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_UPDATE',
+          runtimeState,
+        },
+        req,
+      });
+
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: lockMessage,
+      });
+    }
+
+    const hasLifecycleField = startTime !== undefined || endTime !== undefined || status !== undefined;
+    const isArchiveTransition = status === 'archived' && startTime === undefined && endTime === undefined && (runtimeState === 'ended' || runtimeState === 'draft');
+
+    if (hasLifecycleField && isLifecycleMutationLocked(runtimeState) && !isArchiveTransition) {
       const lockMessage = getLifecycleLockMessage(runtimeState);
       const attemptedFields = [];
       if (startTime !== undefined) attemptedFields.push('startTime');
@@ -339,14 +363,23 @@ const deleteContest = async (req, res, next) => {
  */
 const publishContest = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const contest = await ContestModel.findContestById(id);
+    const rawId = req.params.id;
+    const contestIdNum = Number(rawId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
 
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${id} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -355,7 +388,7 @@ const publishContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: id,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: { attemptedAction: 'CONTEST_PUBLISHED' },
         req,
@@ -375,7 +408,7 @@ const publishContest = async (req, res, next) => {
       });
     }
 
-    const publishResult = await ContestModel.publishContestWithSafety(id, req.user, req);
+    const publishResult = await ContestModel.publishContestWithSafety(contestIdNum, req.user, req);
     if (publishResult.invalidStatus) {
       return res.status(400).json({
         status: 'error',
@@ -396,13 +429,214 @@ const publishContest = async (req, res, next) => {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${id} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
     return res.status(200).json({
+      status: 'success',
       message: 'Contest published successfully',
       contest: formatContest(publishResult.contest),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Unpublish contest (published upcoming -> draft)
+ * @route POST /api/contests/:id/unpublish
+ */
+const unpublishContest = async (req, res, next) => {
+  try {
+    const rawId = req.params.id;
+    const contestIdNum = Number(rawId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (!canManageResource(req.user, contest)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_UNPUBLISHED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to unpublish this contest',
+      });
+    }
+
+    const result = await ContestModel.unpublishContestWithSafety(contestIdNum, req.user, req);
+
+    if (result.notFound) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (result.invalidStatus) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: result.message || `Cannot unpublish contest in current status: ${result.currentStatus}`,
+      });
+    }
+
+    if (result.locked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_UNPUBLISHED',
+          runtimeState: result.runtimeState,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: result.message,
+      });
+    }
+
+    if (result.hasSubmissions) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_UNPUBLISHED',
+          reason: 'has_submissions',
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: result.message,
+      });
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Contest unpublished successfully',
+      contest: formatContest(result.contest),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Archive contest (ended / draft / upcoming -> archived)
+ * @route POST /api/contests/:id/archive
+ */
+const archiveContest = async (req, res, next) => {
+  try {
+    const rawId = req.params.id;
+    const contestIdNum = Number(rawId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (!canManageResource(req.user, contest)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_ARCHIVED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to archive this contest',
+      });
+    }
+
+    const result = await ContestModel.archiveContestWithSafety(contestIdNum, req.user, req);
+
+    if (result.notFound) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (result.alreadyArchived) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: result.message || 'Contest is already archived',
+      });
+    }
+
+    if (result.running) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_ARCHIVED',
+          runtimeState: 'running',
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: result.message || 'Cannot archive an actively running contest.',
+      });
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Contest archived successfully',
+      contest: formatContest(result.contest),
     });
   } catch (error) {
     next(error);
@@ -1483,6 +1717,8 @@ module.exports = {
   updateContest,
   deleteContest,
   publishContest,
+  unpublishContest,
+  archiveContest,
   getContestProblems,
   addProblemToContest,
   removeProblemFromContest,

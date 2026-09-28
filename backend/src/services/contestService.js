@@ -127,6 +127,57 @@ const formatContest = (contest) => {
   };
 };
 
+/**
+ * Determine if a contest is editable based on its runtime state
+ * @param {Object} contest
+ * @returns {{ editable: boolean, reason?: string }}
+ */
+const isContestEditable = (contest) => {
+  if (!contest) return { editable: false, reason: 'Contest not found' };
+  const runtimeState = getContestRuntimeState(contest);
+  if (runtimeState === 'draft' || runtimeState === 'upcoming') {
+    return { editable: true };
+  }
+  return {
+    editable: false,
+    reason: getLifecycleLockMessage(runtimeState),
+  };
+};
+
+/**
+ * Determine available lifecycle actions for a contest and user
+ * @param {Object} contest
+ * @param {Object} user
+ * @returns {Object}
+ */
+const getAvailableLifecycleActions = (contest, user) => {
+  if (!contest || !user) {
+    return { canPublish: false, canUnpublish: false, canArchive: false, canEdit: false };
+  }
+
+  const hasPermission = canManageResource(user, contest);
+  if (!hasPermission) {
+    return { canPublish: false, canUnpublish: false, canArchive: false, canEdit: false };
+  }
+
+  const runtimeState = getContestRuntimeState(contest);
+  const status = contest.status || 'draft';
+
+  const canPublish = status === 'draft';
+  const canUnpublish = status === 'published' && runtimeState === 'upcoming';
+  const canArchive = status !== 'archived' && runtimeState !== 'running';
+  const canEdit = runtimeState === 'draft' || runtimeState === 'upcoming';
+
+  return {
+    canPublish,
+    canUnpublish,
+    canArchive,
+    canEdit,
+    runtimeState,
+    status,
+  };
+};
+
 module.exports = {
   getContestRuntimeState,
   isLifecycleMutationLocked,
@@ -134,4 +185,6 @@ module.exports = {
   getProblemMutationLockMessage,
   canManageResource,
   formatContest,
+  isContestEditable,
+  getAvailableLifecycleActions,
 };

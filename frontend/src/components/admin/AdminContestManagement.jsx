@@ -105,6 +105,7 @@ export default function AdminContestManagement({
   onInspectContest,
   onCloseInspect,
   onPublishContest,
+  onUnpublishContest,
   onArchiveContest,
   onUpdateContest,
   onRetry,
@@ -114,6 +115,8 @@ export default function AdminContestManagement({
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   // editContest holds the full contest row currently being edited (or null if closed)
   const [editContest, setEditContest] = useState(null);
+  // confirmAction holds { type: 'archive' | 'unpublish', contestId, contestTitle } or null
+  const [confirmAction, setConfirmAction] = useState(null);
   const totalPages = Math.max(Math.ceil(totalContests / limit) || 1, 1);
 
   /**
@@ -634,22 +637,85 @@ export default function AdminContestManagement({
                               onClick={() => onPublishContest(c.id)}
                               disabled={isProcessing}
                               className="btn-table-action btn-action-publish"
-                              title="Publish this contest"
+                              title={
+                                (c.problemCount || 0) === 0
+                                  ? 'Contest has no attached problems (at least 1 required to publish)'
+                                  : 'Publish this contest'
+                              }
                             >
                               <Globe size={13} /> Publish
                             </button>
                           )}
 
-                          {/* Archive Action (for published/ended contests) */}
-                          {c.status === 'published' && onArchiveContest && (
+                          {/* Unpublish Action (for upcoming published contests) */}
+                          {c.status === 'published' && (c.runtimeState || '').toLowerCase() === 'upcoming' && onUnpublishContest && (
                             <button
-                              onClick={() => onArchiveContest(c.id)}
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'unpublish',
+                                  contestId: c.id,
+                                  contestTitle: c.title,
+                                })
+                              }
+                              disabled={isProcessing}
+                              className="btn-table-action"
+                              style={{
+                                background: 'rgba(234, 179, 8, 0.1)',
+                                color: '#eab308',
+                                border: '1px solid rgba(234, 179, 8, 0.25)',
+                              }}
+                              title="Revert upcoming contest to draft"
+                            >
+                              <RotateCcw size={13} /> Unpublish
+                            </button>
+                          )}
+
+                          {/* Archive Action (for ended or draft contests) */}
+                          {c.status !== 'archived' && (c.runtimeState || '').toLowerCase() !== 'running' && onArchiveContest && (
+                            <button
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'archive',
+                                  contestId: c.id,
+                                  contestTitle: c.title,
+                                })
+                              }
                               disabled={isProcessing}
                               className="btn-table-action btn-action-archive"
-                              title="Archive contest"
+                              title="Archive contest as read-only historical record"
                             >
                               <Archive size={13} /> Archive
                             </button>
+                          )}
+
+                          {/* Running Contest Lock Indicator */}
+                          {(c.runtimeState || '').toLowerCase() === 'running' && (
+                            <span
+                              style={{
+                                fontSize: '0.72rem',
+                                color: '#64748b',
+                                fontStyle: 'italic',
+                                padding: '2px 6px',
+                              }}
+                              title="Contest is actively running and locked against lifecycle modifications"
+                            >
+                              Active Lock
+                            </span>
+                          )}
+
+                          {/* Archived Contest Indicator */}
+                          {c.status === 'archived' && (
+                            <span
+                              style={{
+                                fontSize: '0.72rem',
+                                color: '#64748b',
+                                fontStyle: 'italic',
+                                padding: '2px 6px',
+                              }}
+                              title="Contest is archived and immutable"
+                            >
+                              Archived
+                            </span>
                           )}
                         </div>
                       </td>
@@ -740,6 +806,104 @@ export default function AdminContestManagement({
                 <AuthoringLoadingState message="Loading contest details..." />
               ) : (
                 <>
+                  {/* Lifecycle & Status Card */}
+                  <div>
+                    <div className="inspect-section-title">Lifecycle & Administration</div>
+                    <div className="inspect-grid-2">
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Runtime State</div>
+                        <div className="inspect-field-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {getRuntimeBadge(inspectedContest.runtimeState || inspectedContest.status)}
+                        </div>
+                      </div>
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Visibility Status</div>
+                        <div className="inspect-field-val">
+                          {inspectedContest.status === 'draft' ? (
+                            <span style={{ color: '#94a3b8' }}>Draft (Private / Unpublished)</span>
+                          ) : inspectedContest.status === 'archived' ? (
+                            <span style={{ color: '#64748b' }}>Archived (Immutable Record)</span>
+                          ) : (
+                            <span style={{ color: '#38bdf8' }}>Published (Active / Enrolling)</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Configuration Lock</div>
+                        <div className="inspect-field-val">
+                          {['running', 'ended', 'archived'].includes((inspectedContest.runtimeState || inspectedContest.status || '').toLowerCase()) ? (
+                            <span style={{ color: '#f87171' }}>Locked ({inspectedContest.runtimeState || inspectedContest.status})</span>
+                          ) : (
+                            <span style={{ color: '#4ade80' }}>Unlocked (Editable)</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="inspect-field-card">
+                        <div className="inspect-field-label">Available Action</div>
+                        <div className="inspect-field-val">
+                          {inspectedContest.status === 'draft' && onPublishContest && (
+                            <button
+                              onClick={() => onPublishContest(inspectedContest.id)}
+                              disabled={isProcessing}
+                              className="btn-table-action btn-action-publish"
+                              style={{ display: 'inline-flex', padding: '4px 10px' }}
+                            >
+                              <Globe size={12} /> Publish Contest
+                            </button>
+                          )}
+                          {inspectedContest.status === 'published' && (inspectedContest.runtimeState || '').toLowerCase() === 'upcoming' && onUnpublishContest && (
+                            <button
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'unpublish',
+                                  contestId: inspectedContest.id,
+                                  contestTitle: inspectedContest.title,
+                                })
+                              }
+                              disabled={isProcessing}
+                              className="btn-table-action"
+                              style={{
+                                display: 'inline-flex',
+                                padding: '4px 10px',
+                                background: 'rgba(234, 179, 8, 0.1)',
+                                color: '#eab308',
+                                border: '1px solid rgba(234, 179, 8, 0.25)',
+                              }}
+                            >
+                              <RotateCcw size={12} /> Unpublish
+                            </button>
+                          )}
+                          {inspectedContest.status !== 'archived' && (inspectedContest.runtimeState || '').toLowerCase() !== 'running' && onArchiveContest && (
+                            <button
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'archive',
+                                  contestId: inspectedContest.id,
+                                  contestTitle: inspectedContest.title,
+                                })
+                              }
+                              disabled={isProcessing}
+                              className="btn-table-action btn-action-archive"
+                              style={{ display: 'inline-flex', padding: '4px 10px' }}
+                            >
+                              <Archive size={12} /> Archive Contest
+                            </button>
+                          )}
+                          {(inspectedContest.runtimeState || '').toLowerCase() === 'running' && (
+                            <span style={{ color: '#64748b', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                              Running (Locked)
+                            </span>
+                          )}
+                          {inspectedContest.status === 'archived' && (
+                            <span style={{ color: '#64748b', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                              Archived (Frozen)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Overview Cards */}
                   <div>
                     <div className="inspect-section-title">Timeline & Schedule</div>
@@ -836,6 +1000,100 @@ export default function AdminContestManagement({
                 style={{ padding: '6px 16px' }}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Destructive Lifecycle Actions */}
+      {confirmAction && (
+        <div
+          className="contest-inspect-backdrop"
+          style={{ zIndex: 1100 }}
+          onClick={() => !isProcessing && setConfirmAction(null)}
+        >
+          <div
+            className="contest-inspect-modal"
+            style={{ maxWidth: '480px', padding: '24px' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background:
+                    confirmAction.type === 'archive' ? 'rgba(148, 163, 184, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                  color: confirmAction.type === 'archive' ? '#94a3b8' : '#eab308',
+                }}
+              >
+                {confirmAction.type === 'archive' ? <Archive size={20} /> : <AlertTriangle size={20} />}
+              </div>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#f8fafc' }}>
+                {confirmAction.type === 'archive' ? 'Confirm Contest Archival' : 'Confirm Contest Unpublish'}
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.5', margin: '0 0 12px 0' }}>
+              {confirmAction.type === 'archive' ? (
+                <>
+                  Are you sure you want to archive <strong>"{confirmAction.contestTitle}"</strong>?
+                  <br /><br />
+                  Archiving will permanently freeze this contest as an immutable historical record. All submissions, participants, standings, ratings, and attached problems will be preserved, but no further modifications can be made.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to unpublish <strong>"{confirmAction.contestTitle}"</strong>?
+                  <br /><br />
+                  Unpublishing will revert this contest back to <strong>Draft</strong> status. It will no longer be visible to students or available for enrollment. Only upcoming contests with zero submissions can be unpublished.
+                </>
+              )}
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={() => setConfirmAction(null)}
+                className="pagination-btn"
+                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={async () => {
+                  if (confirmAction.type === 'archive') {
+                    if (onArchiveContest) await onArchiveContest(confirmAction.contestId);
+                  } else if (confirmAction.type === 'unpublish') {
+                    if (onUnpublishContest) await onUnpublishContest(confirmAction.contestId);
+                  }
+                  setConfirmAction(null);
+                }}
+                style={{
+                  background: confirmAction.type === 'archive' ? '#64748b' : '#eab308',
+                  color: confirmAction.type === 'archive' ? '#ffffff' : '#0f172a',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  fontWeight: '600',
+                  fontSize: '0.85rem',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isProcessing
+                  ? 'Processing...'
+                  : confirmAction.type === 'archive'
+                  ? 'Confirm Archive'
+                  : 'Confirm Unpublish'}
               </button>
             </div>
           </div>

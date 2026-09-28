@@ -347,10 +347,23 @@ class ContestModel {
       const lockedContest = checkRes.rows[0];
       const runtimeState = getContestRuntimeState(lockedContest);
 
+      if (runtimeState === 'archived') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState,
+          message: getLifecycleLockMessage(runtimeState),
+        };
+      }
+
       // Check if lifecycle-defining fields are present in update
       const isLifecycleMutating = startTime !== undefined || endTime !== undefined || status !== undefined;
 
-      if (isLifecycleMutating && isLifecycleMutationLocked(runtimeState)) {
+      // Special case: archiving an ended or draft contest is a valid lifecycle transition
+      const isArchiveTransition = status === 'archived' && startTime === undefined && endTime === undefined && (runtimeState === 'ended' || runtimeState === 'draft');
+
+      if (isLifecycleMutating && isLifecycleMutationLocked(runtimeState) && !isArchiveTransition) {
         await client.query('ROLLBACK');
         return {
           success: false,
@@ -405,13 +418,14 @@ class ContestModel {
       const updated = res.rows[0] || null;
 
       if (actor && updated) {
+        const auditAction = status === 'archived' ? 'CONTEST_ARCHIVED' : 'CONTEST_UPDATED';
         await AuditLogger.logAction({
           actor,
-          action: 'CONTEST_UPDATED',
+          action: auditAction,
           resourceType: 'contest',
           resourceId: updated.id,
           outcome: 'success',
-          metadata: { title: updated.title, isRated: updated.isRated },
+          metadata: { title: updated.title, isRated: updated.isRated, status: updated.status },
           client,
           req,
         });
@@ -497,6 +511,179 @@ class ContestModel {
 
       await client.query('COMMIT');
       return { success: true, contest: updateRes.rows[0], problemCount };
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Unpublish a contest (published upcoming -> draft) inside an atomic transaction with row locking
+   * Only permitted if:
+   * 1. Contest exists
+   * 2. Current status is 'published'
+   * 3. RuntimeState is 'upcoming' (not running, ended, or archived)
+   * 4. Contest has ZERO submissions
+   */
+  static async unpublishContestWithSafety(id, actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const cRes = await client.query(
+        'SELECT id, title, status, start_time AS "startTime", end_time AS "endTime", created_by AS "createdBy" FROM contests WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true };
+      }
+
+      const currentContest = cRes.rows[0];
+      if (currentContest.status !== 'published') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          invalidStatus: true,
+          currentStatus: currentContest.status,
+          message: `Cannot unpublish contest: Contest is currently in '${currentContest.status}' status (must be published).`,
+        };
+      }
+
+      const runtimeState = getContestRuntimeState(currentContest);
+      if (runtimeState !== 'upcoming') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState,
+          message: `Cannot unpublish contest while it is '${runtimeState}'. Only upcoming contests may be unpublished.`,
+        };
+      }
+
+      // Check if any submissions exist
+      const subRes = await client.query(
+        'SELECT EXISTS (SELECT 1 FROM submissions WHERE contest_id = $1) AS has_submissions',
+        [id]
+      );
+      if (subRes.rows[0]?.has_submissions) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          hasSubmissions: true,
+          message: 'Cannot unpublish contest: Submissions already exist for this contest.',
+        };
+      }
+
+      const updateRes = await client.query(
+        `UPDATE contests 
+         SET status = 'draft', updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1
+         RETURNING 
+           id, title, description, start_time AS "startTime", end_time AS "endTime", 
+           status, is_rated AS "isRated", is_rating_finalized AS "isRatingFinalized",
+           ratings_finalized_at AS "ratingsFinalizedAt", leaderboard_freeze_enabled AS "leaderboardFreezeEnabled",
+           leaderboard_freeze_minutes AS "leaderboardFreezeMinutes", created_by AS "createdBy",
+           created_at AS "createdAt", updated_at AS "updatedAt";`,
+        [id]
+      );
+
+      if (actor) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'CONTEST_UNPUBLISHED',
+          resourceType: 'contest',
+          resourceId: id,
+          outcome: 'success',
+          metadata: { previousStatus: 'published', previousRuntimeState: runtimeState },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+      return { success: true, contest: updateRes.rows[0] };
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Archive a contest inside an atomic transaction with row locking
+   * Permitted for ended or draft contests. Actively running contests CANNOT be archived.
+   * Preserves all submissions, participants, standings, ratings, and problem records.
+   */
+  static async archiveContestWithSafety(id, actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const cRes = await client.query(
+        'SELECT id, title, status, start_time AS "startTime", end_time AS "endTime", created_by AS "createdBy" FROM contests WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true };
+      }
+
+      const currentContest = cRes.rows[0];
+      if (currentContest.status === 'archived') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          alreadyArchived: true,
+          message: 'Contest is already archived.',
+        };
+      }
+
+      const runtimeState = getContestRuntimeState(currentContest);
+      if (runtimeState === 'running') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          running: true,
+          message: 'Cannot archive an actively running contest.',
+        };
+      }
+
+      const updateRes = await client.query(
+        `UPDATE contests 
+         SET status = 'archived', updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1
+         RETURNING 
+           id, title, description, start_time AS "startTime", end_time AS "endTime", 
+           status, is_rated AS "isRated", is_rating_finalized AS "isRatingFinalized",
+           ratings_finalized_at AS "ratingsFinalizedAt", leaderboard_freeze_enabled AS "leaderboardFreezeEnabled",
+           leaderboard_freeze_minutes AS "leaderboardFreezeMinutes", created_by AS "createdBy",
+           created_at AS "createdAt", updated_at AS "updatedAt";`,
+        [id]
+      );
+
+      if (actor) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'CONTEST_ARCHIVED',
+          resourceType: 'contest',
+          resourceId: id,
+          outcome: 'success',
+          metadata: { previousStatus: currentContest.status, previousRuntimeState: runtimeState },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+      return { success: true, contest: updateRes.rows[0] };
     } catch (err) {
       try {
         await client.query('ROLLBACK');

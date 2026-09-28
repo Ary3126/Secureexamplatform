@@ -147,6 +147,13 @@ const validateUpdateContest = (req, res, next) => {
     errors.push('Description must be a valid text string.');
   }
 
+  if (status !== undefined) {
+    const validStatuses = ['draft', 'published', 'archived'];
+    if (!validStatuses.includes(status)) {
+      errors.push(`Invalid contest status: '${status}'. Status must be one of: ${validStatuses.join(', ')}.`);
+    }
+  }
+
   if (
     title === undefined &&
     startTime === undefined &&
