@@ -269,6 +269,7 @@ export default function AdminContestProblemList({
           msg = data.errors.join(' ');
         }
         if (res.status === 401) msg = 'Session expired. Please log in again.';
+        if (res.status === 409) msg = data.message || 'Contest is locked for problem modifications.';
         if (res.status === 429) msg = 'Rate limit exceeded. Please wait a moment.';
         throw new Error(msg || `Failed to add problem (${res.status})`);
       }
@@ -729,6 +730,31 @@ export default function AdminContestProblemList({
           >
             Retry
           </button>
+        </div>
+      )}
+
+      {/* Informational Banner: Lifecycle Locked */}
+      {isLifecycleLocked && (
+        <div
+          role="status"
+          data-testid="contest-problems-lifecycle-locked-banner"
+          style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            marginBottom: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: '#fbbf24',
+            fontSize: '0.82rem',
+          }}
+        >
+          <Lock size={14} style={{ flexShrink: 0 }} />
+          <span>
+            This contest is currently <strong>{runtimeState}</strong>. Problem additions, removals, and ordering are locked.
+          </span>
         </div>
       )}
 

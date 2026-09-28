@@ -863,6 +863,19 @@ const bulkAddProblemsToContest = async (req, res, next) => {
 
     const bulkResult = await ContestModel.bulkAddProblemsWithSafety(contestId, problems, req.user, req);
     if (bulkResult.locked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_PROBLEM_MUTATION',
+          operation: 'bulk_add',
+          runtimeState: bulkResult.runtimeState,
+        },
+        req,
+      });
       return res.status(409).json({
         status: 'error',
         statusCode: 409,
@@ -939,6 +952,19 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
 
     const bulkResult = await ContestModel.bulkRemoveProblemsWithSafety(contestId, problemIds, req.user, req);
     if (bulkResult.locked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_PROBLEM_MUTATION',
+          operation: 'bulk_remove',
+          runtimeState: bulkResult.runtimeState,
+        },
+        req,
+      });
       return res.status(409).json({
         status: 'error',
         statusCode: 409,
