@@ -921,7 +921,8 @@ class ContestModel {
       const currentRes = await client.query(`
         SELECT problem_id AS "problemId"
         FROM contest_problems
-        WHERE contest_id = $1;
+        WHERE contest_id = $1
+        FOR UPDATE;
       `, [contestId]);
 
       const currentProblemIds = currentRes.rows.map(r => r.problemId);
@@ -968,16 +969,33 @@ class ContestModel {
         }
       }
 
-      // 6. Execute atomic ordering updates (1-indexed problem_order from 1 to N)
+      // 6. Execute atomic bulk ordering update in a single statement (safe against position collisions)
+      const whenClauses = [];
+      const queryParams = [contestId];
+      const validProblemIds = [];
+
       for (let i = 0; i < orderedProblemIds.length; i++) {
         const probId = parseInt(orderedProblemIds[i], 10);
         const orderNum = i + 1;
-        await client.query(`
-          UPDATE contest_problems
-          SET problem_order = $1
-          WHERE contest_id = $2 AND problem_id = $3;
-        `, [orderNum, contestId, probId]);
+        validProblemIds.push(probId);
+        queryParams.push(probId, orderNum);
+        const idParamIdx = queryParams.length - 1;
+        const orderParamIdx = queryParams.length;
+        whenClauses.push(`WHEN problem_id = $${idParamIdx}::int THEN $${orderParamIdx}::int`);
       }
+
+      queryParams.push(validProblemIds);
+      const arrayParamIdx = queryParams.length;
+
+      const updateQuery = `
+        UPDATE contest_problems
+        SET problem_order = (CASE 
+          ${whenClauses.join('\n          ')}
+        END)::int
+        WHERE contest_id = $1 AND problem_id = ANY($${arrayParamIdx}::int[]);
+      `;
+
+      await client.query(updateQuery, queryParams);
 
       // 7. Retrieve updated problems list ordered by problem_order ASC, problem_id ASC
       const updatedRes = await client.query(`
@@ -995,6 +1013,21 @@ class ContestModel {
         WHERE cp.contest_id = $1
         ORDER BY cp.problem_order ASC, p.id ASC;
       `, [contestId]);
+
+      // Verify final ordering invariant before committing
+      const rows = updatedRes.rows;
+      if (rows.length !== orderedProblemIds.length) {
+        await client.query('ROLLBACK');
+        return { success: false, invalid: true, message: 'Final ordering count mismatch' };
+      }
+      for (let i = 0; i < rows.length; i++) {
+        const expectedId = parseInt(orderedProblemIds[i], 10);
+        const expectedOrder = i + 1;
+        if (rows[i].problemId !== expectedId || rows[i].problemOrder !== expectedOrder) {
+          await client.query('ROLLBACK');
+          return { success: false, invalid: true, message: 'Final ordering verification failed' };
+        }
+      }
 
       // 8. Audit log
       if (actor) {
