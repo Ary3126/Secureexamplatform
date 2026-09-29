@@ -12,6 +12,13 @@ const {
   getLifecycleLockMessage,
   getProblemMutationLockMessage,
 } = require('../services/contestService');
+const {
+  validateStudentEligibility,
+  validateContestAccess,
+  evaluateContestAccessAndEligibility,
+  validateTargetStudentForEnrollment,
+} = require('../services/contestAccessService');
+
 
 /**
  * Create a new contest (starts in 'draft' status)
@@ -1413,6 +1420,27 @@ const joinContest = async (req, res, next) => {
       });
     }
 
+    // Account status check: Inactive or suspended accounts cannot enroll
+    const isUserActive = req.user.isActive !== undefined ? req.user.isActive : (req.user.is_active !== undefined ? req.user.is_active : true);
+    if (!isUserActive) {
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'CONTEST_ENROLL', reason: 'INACTIVE_USER_ACCOUNT' },
+          req,
+        });
+      }
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: Inactive or suspended student accounts cannot enroll in contests.',
+      });
+    }
+
     // Role check: Only students can participate as competitors
     if (req.user.role !== 'student') {
       if (AuditLogger && AuditLogger.logAction) {
@@ -1563,6 +1591,60 @@ const getMyEnrollmentStatus = async (req, res, next) => {
       isEnrolled: Boolean(participant),
       enrolledAt: participant ? participant.joinedAt : null,
       participant: participant || null,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Check current user contest eligibility and access evaluation (Phase 7.5.7.6)
+ * Server-authoritative endpoint. Evaluates req.user.id strictly to prevent BOLA/IDOR.
+ * @route GET /api/contests/:id/eligibility
+ */
+const getContestEligibility = async (req, res, next) => {
+  try {
+    const { id: rawContestId } = req.params;
+    const contestId = Number(rawContestId);
+
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    // Check if current user is enrolled (evaluating server-authoritative req.user.id)
+    const participant = await ContestModel.findParticipant(contestId, req.user.id);
+    const isEnrolled = Boolean(participant);
+
+    const evaluation = evaluateContestAccessAndEligibility(req.user, contest, isEnrolled);
+
+    // If contest is in draft status and caller is not a manager, return 403 Forbidden without leaking sensitive info
+    if (!evaluation.allowed && contest.status === 'draft') {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: Contest is in draft mode and not accessible.',
+        eligibility: evaluation,
+      });
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      ...evaluation,
+      enrolledAt: participant ? participant.joinedAt : null,
+      eligibility: evaluation,
     });
   } catch (error) {
     next(error);
@@ -1743,7 +1825,8 @@ const addContestParticipant = async (req, res, next) => {
       });
     }
 
-    if (!studentUser.isActive && !studentUser.is_active) {
+    const isTargetActive = studentUser.isActive !== undefined ? studentUser.isActive : (studentUser.is_active !== undefined ? studentUser.is_active : true);
+    if (!isTargetActive) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -2486,6 +2569,7 @@ module.exports = {
   bulkRemoveProblemsFromContest,
   joinContest,
   getMyEnrollmentStatus,
+  getContestEligibility,
   getContestParticipants,
   addContestParticipant,
   removeContestParticipant,

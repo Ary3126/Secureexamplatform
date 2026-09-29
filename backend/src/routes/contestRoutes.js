@@ -227,6 +227,12 @@ router.delete(
 router.get('/:id/enrollment', mediumProtectionRateLimiter, contestController.getMyEnrollmentStatus);
 
 /**
+ * @route GET /api/contests/:id/eligibility
+ * Check current user contest eligibility and access evaluation (Authenticated)
+ */
+router.get('/:id/eligibility', mediumProtectionRateLimiter, contestController.getContestEligibility);
+
+/**
  * @route POST /api/contests/:id/join
  * Join / Enroll in a published contest (Students only)
  */
