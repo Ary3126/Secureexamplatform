@@ -11,8 +11,10 @@ import {
   ChevronRight,
   AlertCircle,
   Lock,
+  Eye,
 } from 'lucide-react';
 import CoderEmblem from './CoderEmblem';
+import ParticipantResultDetailsModal from './ParticipantResultDetailsModal';
 
 export default function ContestLeaderboard({
   contestId,
@@ -32,6 +34,7 @@ export default function ContestLeaderboard({
   const [isLiveActive, setIsLiveActive] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(null);
+  const [selectedParticipantId, setSelectedParticipantId] = useState(null);
 
   const timerRef = useRef(null);
   const pollIntervalRef = useRef(null);
@@ -402,6 +405,17 @@ export default function ContestLeaderboard({
               </span>
             </div>
           )}
+          <div className="user-pos-actions" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="user-card-inspect-btn"
+              onClick={() => setSelectedParticipantId('me')}
+              title="Inspect your detailed problem breakdown and submission history"
+            >
+              <Eye size={13} />
+              <span>Details</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -478,6 +492,7 @@ export default function ContestLeaderboard({
                       </div>
                     </th>
                   ))}
+                  <th className="th-action" style={{ width: '70px', textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -564,6 +579,23 @@ export default function ContestLeaderboard({
                           </td>
                         );
                       })}
+
+                      {/* Action Cell */}
+                      <td className="td-action" style={{ textAlign: 'center' }}>
+                        {(isSelf || (currentUser && (currentUser.role === 'super_admin' || currentUser.role === 'contest_admin' || (currentUser.role === 'professor' && contest && currentUser.id === contest.createdBy)))) ? (
+                          <button
+                            type="button"
+                            className="btn-results-inspect"
+                            onClick={() => setSelectedParticipantId(p.userId)}
+                            title={`Inspect performance details for ${p.fullName || p.username}`}
+                          >
+                            <Eye size={12} />
+                            <span>Inspect</span>
+                          </button>
+                        ) : (
+                          <span style={{ color: '#475569', fontSize: '0.75rem' }}>—</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -602,6 +634,24 @@ export default function ContestLeaderboard({
           </div>
         )}
       </div>
+
+      {/* 8. Participant Result Details Modal (Phase 7.5.8.4) */}
+      {selectedParticipantId && (
+        <ParticipantResultDetailsModal
+          contestId={contestId}
+          participantId={selectedParticipantId}
+          initialFreezeOverride={false}
+          isManager={Boolean(
+            currentUser &&
+            (currentUser.role === 'super_admin' ||
+             currentUser.role === 'contest_admin' ||
+             (currentUser.role === 'professor' && contest && currentUser.id === contest.createdBy))
+          )}
+          token={token}
+          onClose={() => setSelectedParticipantId(null)}
+          onOpenProblemInWorkspace={onOpenProblemInWorkspace}
+        />
+      )}
     </div>
   );
 }

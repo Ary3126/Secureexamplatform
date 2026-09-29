@@ -2518,6 +2518,113 @@ const getContestAdminLeaderboard = async (req, res, next) => {
 };
 
 /**
+ * Get detailed contest performance and submission history for an individual participant
+ * @route GET /api/contests/:id/participants/:userId/results
+ * @route GET /api/contests/:id/results/me
+ */
+const getContestParticipantResultDetails = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    if (!req.user) {
+      return res.status(401).json({
+        status: 'error',
+        statusCode: 401,
+        message: 'Unauthorized. Authentication token required.',
+      });
+    }
+
+    // Determine targetUserId
+    let targetUserId;
+    if (req.params.userId === 'me' || !req.params.userId) {
+      targetUserId = req.user.id;
+    } else {
+      const parsedUserId = Number(req.params.userId);
+      if (!Number.isInteger(parsedUserId) || parsedUserId <= 0) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Invalid participant ID format. Must be a positive integer or "me".',
+        });
+      }
+      targetUserId = parsedUserId;
+    }
+
+    // Verify contest existence
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    // Check manager status
+    const isManager = Boolean(
+      req.user.role === 'super_admin' ||
+      req.user.role === 'contest_admin' ||
+      (req.user.role === 'professor' && req.user.id === contest.created_by)
+    );
+
+    // BOLA Check: Draft contest secrecy
+    if (contest.status === 'draft' && !isManager) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    // BOLA Check: Student can only view their own result details
+    if (req.user.role === 'student' && targetUserId !== req.user.id) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not have permission to view another student\'s contest result details.',
+      });
+    }
+
+    // BOLA Check: Professor can only inspect contests they manage
+    if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not manage this contest.',
+      });
+    }
+
+    const { freezeOverride } = req.query;
+    const effectiveFreezeOverride = isManager && (freezeOverride === 'true' || freezeOverride === true);
+
+    const StandingsService = require('../services/standingsService');
+    const result = await StandingsService.computeParticipantResultDetails({
+      contestId: contestIdNum,
+      targetUserId,
+      requestingUser: req.user,
+      freezeOverride: effectiveFreezeOverride,
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getMyContestResultDetails = async (req, res, next) => {
+  req.params.userId = 'me';
+  return getContestParticipantResultDetails(req, res, next);
+};
+
+/**
  * Reorder problems in a contest
  * @route PUT /api/contests/:contestId/problems/order
  * @route PUT /api/contests/:id/problems/order
@@ -2716,4 +2823,6 @@ module.exports = {
   getContestLeaderboard,
   getContestResults,
   getContestAdminLeaderboard,
+  getContestParticipantResultDetails,
+  getMyContestResultDetails,
 };

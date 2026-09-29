@@ -16,8 +16,10 @@ import {
   BarChart3,
   Award,
   Sparkles,
+  Eye,
 } from 'lucide-react';
 import CoderEmblem from './CoderEmblem';
+import ParticipantResultDetailsModal from './ParticipantResultDetailsModal';
 import './contestResultsView.css';
 
 /**
@@ -41,6 +43,7 @@ export default function ContestResultsView({
   const [page, setPage] = useState(1);
   const [limit] = useState(25);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedParticipantId, setSelectedParticipantId] = useState(null);
 
   // Fetch Authoritative Contest Results from backend
   const fetchResults = useCallback(
@@ -159,6 +162,13 @@ export default function ContestResultsView({
   const userResult = data?.userResult || data?.userPosition;
   const pagination = data?.pagination || {};
   const resultSummary = data?.resultSummary || data?.contestSummary;
+
+  const isManager = Boolean(
+    currentUser &&
+    (currentUser.role === 'super_admin' ||
+     currentUser.role === 'contest_admin' ||
+     (currentUser.role === 'professor' && contest && (currentUser.id === contest.createdBy || currentUser.id === contest.created_by)))
+  );
 
   return (
     <div className="contest-results-container">
@@ -457,6 +467,18 @@ export default function ContestResultsView({
               )}
             </div>
           )}
+
+          <div className="user-card-actions">
+            <button
+              type="button"
+              className="user-card-inspect-btn"
+              onClick={() => setSelectedParticipantId('me')}
+              title="Inspect your detailed problem breakdown and submission history"
+            >
+              <Eye size={14} />
+              <span>Inspect Breakdown</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -522,6 +544,7 @@ export default function ContestResultsView({
                       </div>
                     </th>
                   ))}
+                  <th className="th-action">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -633,6 +656,23 @@ export default function ContestResultsView({
                           </td>
                         );
                       })}
+
+                      {/* Action Cell */}
+                      <td className="td-action">
+                        {(isSelf || isManager) ? (
+                          <button
+                            type="button"
+                            className="btn-results-inspect"
+                            onClick={() => setSelectedParticipantId(p.userId)}
+                            title={`Inspect performance details for ${p.fullName || p.username}`}
+                          >
+                            <Eye size={12} />
+                            <span>Inspect</span>
+                          </button>
+                        ) : (
+                          <span style={{ color: '#475569', fontSize: '0.75rem' }}>—</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -671,6 +711,19 @@ export default function ContestResultsView({
           </div>
         )}
       </div>
+
+      {/* 9. Participant Result Details Modal (Phase 7.5.8.4) */}
+      {selectedParticipantId && (
+        <ParticipantResultDetailsModal
+          contestId={contestId}
+          participantId={selectedParticipantId}
+          initialFreezeOverride={false}
+          isManager={isManager}
+          token={token}
+          onClose={() => setSelectedParticipantId(null)}
+          onOpenProblemInWorkspace={onOpenProblemInWorkspace}
+        />
+      )}
     </div>
   );
 }

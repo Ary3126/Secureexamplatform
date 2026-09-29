@@ -27,6 +27,7 @@ import {
   Users,
   ShieldAlert,
 } from 'lucide-react';
+import ParticipantResultDetailsModal from '../ParticipantResultDetailsModal';
 import './adminContestLeaderboard.css';
 
 export default function AdminContestLeaderboard({
@@ -434,134 +435,16 @@ export default function AdminContestLeaderboard({
         </div>
       )}
 
-      {/* 5. Participant Performance Inspection Modal */}
+      {/* 5. Authoritative Participant Result Details Modal (Phase 7.5.8.4) */}
       {inspectedParticipant && (
-        <div className="admin-lb-modal-backdrop" onClick={() => setInspectedParticipant(null)}>
-          <div className="admin-lb-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="admin-lb-modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div className="admin-lb-avatar" style={{ width: '36px', height: '36px', fontSize: '0.9rem' }}>
-                  {inspectedParticipant.avatarUrl ? (
-                    <img src={inspectedParticipant.avatarUrl} alt={inspectedParticipant.username} />
-                  ) : (
-                    (inspectedParticipant.fullName || inspectedParticipant.username).charAt(0).toUpperCase()
-                  )}
-                </div>
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#f8fafc' }}>
-                    {inspectedParticipant.fullName || inspectedParticipant.username}
-                  </h4>
-                  <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                    @{inspectedParticipant.username} • Joined {new Date(inspectedParticipant.joinedAt).toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInspectedParticipant(null)}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="admin-lb-modal-body">
-              {/* Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
-                <div className="admin-lb-metric-card" style={{ textAlign: 'center' }}>
-                  <span className="admin-lb-metric-label">Rank</span>
-                  <span className="admin-lb-metric-value">#{inspectedParticipant.rank}</span>
-                </div>
-                <div className="admin-lb-metric-card" style={{ textAlign: 'center' }}>
-                  <span className="admin-lb-metric-label">Score</span>
-                  <span className="admin-lb-metric-value" style={{ color: '#38bdf8' }}>
-                    {inspectedParticipant.totalScore}
-                  </span>
-                </div>
-                <div className="admin-lb-metric-card" style={{ textAlign: 'center' }}>
-                  <span className="admin-lb-metric-label">Solved</span>
-                  <span className="admin-lb-metric-value">
-                    {inspectedParticipant.solvedProblemsCount}
-                  </span>
-                </div>
-                <div className="admin-lb-metric-card" style={{ textAlign: 'center' }}>
-                  <span className="admin-lb-metric-label">Penalty</span>
-                  <span className="admin-lb-metric-value">
-                    {inspectedParticipant.totalPenaltyMinutes}m
-                  </span>
-                </div>
-                <div className="admin-lb-metric-card" style={{ textAlign: 'center' }}>
-                  <span className="admin-lb-metric-label">Submissions</span>
-                  <span className="admin-lb-metric-value">
-                    {inspectedParticipant.totalSubmissions || 0}
-                  </span>
-                </div>
-              </div>
-
-              {/* Problem by Problem Table */}
-              <div>
-                <h5 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#cbd5e1' }}>
-                  Problem Breakdown
-                </h5>
-                <div className="admin-lb-table-wrap">
-                  <table className="admin-lb-table" style={{ fontSize: '0.78rem' }}>
-                    <thead>
-                      <tr>
-                        <th>Problem</th>
-                        <th style={{ textAlign: 'center' }}>Status</th>
-                        <th style={{ textAlign: 'center' }}>Points</th>
-                        <th style={{ textAlign: 'center' }}>Attempts</th>
-                        <th style={{ textAlign: 'center' }}>Time</th>
-                        <th style={{ textAlign: 'center' }}>Penalty</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inspectedParticipant.problems?.map((prob) => (
-                        <tr key={prob.problemId}>
-                          <td>
-                            <span style={{ fontWeight: '600' }}>P{prob.problemOrder}. {prob.problemTitle || `Problem #${prob.problemId}`}</span>
-                            <span style={{ display: 'block', fontSize: '0.68rem', color: '#94a3b8' }}>Max {prob.maxPoints} pts</span>
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {prob.status === 'solved' ? (
-                              <span style={{ color: '#4ade80', fontWeight: '600' }}>Solved</span>
-                            ) : prob.status === 'failed' ? (
-                              <span style={{ color: '#f87171', fontWeight: '600' }}>Attempted</span>
-                            ) : (
-                              <span style={{ color: '#64748b' }}>Unattempted</span>
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'center', fontWeight: '700', color: prob.points > 0 ? '#38bdf8' : '#94a3b8' }}>
-                            {prob.points}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {prob.attemptsCount} {prob.failedAttemptsBeforeSolve > 0 && `(${prob.failedAttemptsBeforeSolve} wrong)`}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {prob.acceptedTimeMinutes !== null ? `${prob.acceptedTimeMinutes}m` : '—'}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {prob.penaltyContribution > 0 ? `+${prob.penaltyContribution}m` : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <div className="admin-lb-modal-footer">
-              <button
-                type="button"
-                className="admin-lb-btn-page"
-                onClick={() => setInspectedParticipant(null)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <ParticipantResultDetailsModal
+          contestId={contestId}
+          participantId={inspectedParticipant.userId}
+          initialFreezeOverride={freezeOverride}
+          isManager={true}
+          token={token}
+          onClose={() => setInspectedParticipant(null)}
+        />
       )}
     </div>
   );

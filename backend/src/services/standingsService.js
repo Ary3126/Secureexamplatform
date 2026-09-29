@@ -528,6 +528,161 @@ class StandingsService {
       contestSummary: standingsData.contestSummary,
     };
   }
+
+  /**
+   * Authoritative Participant Contest Result Details
+   * Computes individual participant summary, problem-by-problem performance,
+   * and submission history with freeze masking and authorization controls.
+   *
+   * @param {Object} params
+   * @param {number} params.contestId
+   * @param {number} params.targetUserId
+   * @param {Object} [params.requestingUser=null]
+   * @param {boolean} [params.freezeOverride=false]
+   * @param {Object} [params.clientOrDb=null]
+   * @returns {Promise<Object>} Authoritative Participant Result Details Payload
+   */
+  static async computeParticipantResultDetails({
+    contestId,
+    targetUserId,
+    requestingUser = null,
+    freezeOverride = false,
+    clientOrDb = null,
+  }) {
+    const executor = clientOrDb || db;
+
+    // 1. Fetch entire contest standings using authoritative computeContestStandings
+    const standingsData = await this.computeContestStandings({
+      contestId,
+      requestingUser,
+      page: 1,
+      limit: 10000,
+      freezeOverride,
+      clientOrDb: executor,
+    });
+
+    // 2. Locate target participant row
+    const allRows = standingsData._allParticipants || standingsData.standings || [];
+    const targetParticipant = allRows.find((p) => Number(p.userId) === Number(targetUserId));
+    if (!targetParticipant) {
+      const err = new Error(`Participant with ID ${targetUserId} not found in contest ${contestId}`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    // 3. Determine Freeze Cutoff for Submissions History
+    const contest = standingsData.contest;
+    const isFrozen = Boolean(contest.isFrozen);
+    const isManager = Boolean(
+      requestingUser &&
+      (requestingUser.role === 'super_admin' ||
+        requestingUser.role === 'contest_admin' ||
+        (requestingUser.role === 'professor' && requestingUser.id === contest.createdBy))
+    );
+    const applyFreezeCutoff = isFrozen && !(isManager && freezeOverride);
+
+    // 4. Query participant submission history for this contest
+    let subsQuery = `
+      SELECT 
+        s.id,
+        s.problem_id AS "problemId",
+        cp.problem_order AS "problemOrder",
+        p.title AS "problemTitle",
+        p.difficulty AS "problemDifficulty",
+        s.language,
+        s.coding_mode AS "codingMode",
+        s.status,
+        s.score,
+        s.execution_time AS "executionTime",
+        s.memory_used AS "memoryUsed",
+        s.error_message AS "errorMessage",
+        s.created_at AS "submittedAt",
+        s.source_code AS "sourceCode"
+      FROM submissions s
+      JOIN contest_problems cp ON s.contest_id = cp.contest_id AND s.problem_id = cp.problem_id
+      JOIN problems p ON s.problem_id = p.id
+      WHERE s.contest_id = $1 AND s.user_id = $2 AND s.is_sample_run = false
+    `;
+    const queryParams = [contestId, targetUserId];
+
+    if (applyFreezeCutoff && contest.freezeTime) {
+      queryParams.push(new Date(contest.freezeTime).toISOString());
+      subsQuery += ` AND s.created_at <= $3`;
+    }
+
+    subsQuery += ` ORDER BY s.created_at DESC;`;
+
+    const subsRes = await executor.query(subsQuery, queryParams);
+
+    // 5. Code viewing permissions check
+    const canViewCode = Boolean(
+      requestingUser &&
+      (requestingUser.id === targetUserId ||
+        requestingUser.role === 'super_admin' ||
+        requestingUser.role === 'contest_admin' ||
+        (requestingUser.role === 'professor' && requestingUser.id === contest.createdBy))
+    );
+
+    const formattedSubmissions = subsRes.rows.map((sub) => ({
+      id: sub.id,
+      problemId: sub.problemId,
+      problemOrder: sub.problemOrder,
+      problemTitle: sub.problemTitle,
+      problemDifficulty: sub.problemDifficulty,
+      language: sub.language,
+      codingMode: sub.codingMode,
+      status: sub.status,
+      score: sub.score,
+      executionTime: sub.executionTime,
+      memoryUsed: sub.memoryUsed,
+      errorMessage: sub.errorMessage || null,
+      submittedAt: sub.submittedAt,
+      canViewCode,
+      sourceCode: canViewCode ? sub.sourceCode : null,
+    }));
+
+    return {
+      contest: {
+        id: contest.id,
+        title: contest.title,
+        status: contest.status,
+        runtimeState: contest.runtimeState,
+        isRated: contest.isRated,
+        isRatingFinalized: contest.isRatingFinalized,
+        ratingsFinalizedAt: contest.ratingsFinalizedAt,
+        isFrozen: contest.isFrozen,
+        freezeTime: contest.freezeTime,
+        startTime: contest.startTime,
+        endTime: contest.endTime,
+      },
+      participant: {
+        userId: targetParticipant.userId,
+        username: targetParticipant.username,
+        fullName: targetParticipant.fullName,
+        avatarUrl: targetParticipant.avatarUrl,
+        currentRating: targetParticipant.currentRating,
+        highestRating: targetParticipant.highestRating,
+        ratingStatus: targetParticipant.ratingStatus,
+        previousRating: targetParticipant.previousRating,
+        ratingChange: targetParticipant.ratingChange,
+        newRating: targetParticipant.newRating,
+        joinedAt: targetParticipant.joinedAt,
+      },
+      summary: {
+        rank: targetParticipant.rank,
+        totalScore: targetParticipant.totalScore,
+        solvedProblemsCount: targetParticipant.solvedProblemsCount,
+        totalProblems: standingsData.problems.length,
+        totalPenaltyMinutes: targetParticipant.totalPenaltyMinutes,
+        totalTimeMs: targetParticipant.totalTimeMs,
+        totalSubmissions: targetParticipant.totalSubmissions,
+        lastAcceptedAt: targetParticipant.lastAcceptedAt,
+        isFrozen: contest.isFrozen,
+      },
+      problems: targetParticipant.problems,
+      submissions: formattedSubmissions,
+    };
+  }
 }
 
 module.exports = StandingsService;

@@ -267,6 +267,26 @@ router.get(
 );
 
 /**
+ * @route GET /api/contests/:id/results/me
+ * Get current student's own contest result details
+ */
+router.get(
+  '/:id/results/me',
+  mediumProtectionRateLimiter,
+  contestController.getMyContestResultDetails
+);
+
+/**
+ * @route GET /api/contests/:id/participants/:userId/results
+ * Get participant contest result details (authorized for student self or contest managers)
+ */
+router.get(
+  '/:id/participants/:userId/results',
+  mediumProtectionRateLimiter,
+  contestController.getContestParticipantResultDetails
+);
+
+/**
  * @route GET /api/contests/:id/search-students
  * Search available students eligible to be added to this contest
  */
