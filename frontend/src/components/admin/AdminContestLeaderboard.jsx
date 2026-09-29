@@ -133,7 +133,7 @@ export default function AdminContestLeaderboard({
   const standings = data?.standings || [];
   const problems = data?.problems || [];
   const pagination = data?.pagination || {};
-  const isContestFrozen = Boolean(data?.contest?.isFrozen);
+  const isContestFrozen = Boolean(data?.contest?.isFrozen || data?.contest?.freezeState === 'FROZEN');
 
   return (
     <div className="admin-lb-container">
@@ -204,6 +204,7 @@ export default function AdminContestLeaderboard({
               type="checkbox"
               checked={freezeOverride}
               onChange={(e) => setFreezeOverride(e.target.checked)}
+              aria-label="Unmask submissions during freeze window"
             />
             <span>Unmask Freeze</span>
           </label>
@@ -225,6 +226,8 @@ export default function AdminContestLeaderboard({
       {/* Freeze Warning Banner if currently frozen */}
       {isContestFrozen && (
         <div
+          role="status"
+          aria-live="polite"
           style={{
             background: freezeOverride ? 'rgba(56, 189, 248, 0.12)' : 'rgba(168, 85, 247, 0.15)',
             border: `1px solid ${freezeOverride ? 'rgba(56, 189, 248, 0.3)' : 'rgba(168, 85, 247, 0.35)'}`,
@@ -237,7 +240,7 @@ export default function AdminContestLeaderboard({
             color: freezeOverride ? '#38bdf8' : '#c084fc',
           }}
         >
-          <ShieldAlert size={16} />
+          <ShieldAlert size={16} aria-hidden="true" />
           <div>
             <strong>Contest is currently Frozen.</strong>{' '}
             {freezeOverride

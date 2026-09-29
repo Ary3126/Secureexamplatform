@@ -600,7 +600,7 @@ export default function AdminContestManagement({
                         )}
                         {c.leaderboardFreezeEnabled && (
                           <div style={{ fontSize: '0.68rem', color: '#a78bfa', marginTop: '3px' }}>
-                            Freeze: {c.leaderboardFreezeMinutes || 60}m
+                            Freeze: {c.leaderboardFreezeMinutes ?? 60}m
                           </div>
                         )}
                       </td>
@@ -970,7 +970,7 @@ export default function AdminContestManagement({
                       <div className="inspect-field-card">
                         <div className="inspect-field-label">Leaderboard Freeze</div>
                         <div className="inspect-field-val">
-                          {inspectedContest.leaderboardFreezeEnabled ? `Enabled (${inspectedContest.leaderboardFreezeMinutes || 60} mins before end)` : 'Disabled (Live all time)'}
+                          {inspectedContest.leaderboardFreezeEnabled ? `Enabled (${inspectedContest.leaderboardFreezeMinutes ?? 60} mins before end)` : 'Disabled (Live all time)'}
                         </div>
                       </div>
                       <div className="inspect-field-card">

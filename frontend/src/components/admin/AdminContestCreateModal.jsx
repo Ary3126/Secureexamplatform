@@ -210,7 +210,9 @@ export default function AdminContestCreateModal({
       isRated: Boolean(formData.isRated),
       leaderboardFreezeEnabled: Boolean(formData.leaderboardFreezeEnabled),
       leaderboardFreezeMinutes: formData.leaderboardFreezeEnabled
-        ? parseInt(formData.leaderboardFreezeMinutes, 10) || 60
+        ? (!isNaN(parseInt(formData.leaderboardFreezeMinutes, 10))
+            ? Math.max(0, parseInt(formData.leaderboardFreezeMinutes, 10))
+            : 60)
         : 60,
     };
 

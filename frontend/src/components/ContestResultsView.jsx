@@ -91,6 +91,26 @@ export default function ContestResultsView({
     fetchResults(true);
   }, [fetchResults]);
 
+  // Tab Visibility & Online Event Listeners (re-fetch authoritative state when returning)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchResults(false);
+      }
+    };
+    const handleOnline = () => {
+      fetchResults(false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [fetchResults]);
+
   const getTierDetails = (rating) => {
     const r = rating || 1200;
     if (r >= 2400) return { label: 'Grandmaster', color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.15)' };
@@ -104,37 +124,37 @@ export default function ContestResultsView({
 
   const getStatusBadge = (contest) => {
     if (!contest) return null;
-    if (contest.isRatingFinalized) {
+    if (contest.isRatingFinalized || contest.freezeState === 'FINAL') {
       return (
-        <span className="results-badge badge-finalized">
-          <CheckCircle2 size={13} /> Official Results
+        <span className="results-badge badge-finalized" role="status" aria-label="Contest Status: Official Results">
+          <CheckCircle2 size={13} aria-hidden="true" /> Official Results
         </span>
       );
     }
-    if (contest.isFrozen) {
+    if (contest.isFrozen || contest.freezeState === 'FROZEN') {
       return (
-        <span className="results-badge badge-frozen">
-          <Lock size={13} /> Frozen (Provisional)
+        <span className="results-badge badge-frozen" role="status" aria-label="Contest Status: Frozen (Provisional)">
+          <Lock size={13} aria-hidden="true" /> Frozen (Provisional)
         </span>
       );
     }
     if (contest.runtimeState === 'running') {
       return (
-        <span className="results-badge badge-live">
-          <span className="live-dot-pulse" /> Live In Progress
+        <span className="results-badge badge-live" role="status" aria-label="Contest Status: Live In Progress">
+          <span className="live-dot-pulse" aria-hidden="true" /> Live In Progress
         </span>
       );
     }
     if (contest.runtimeState === 'upcoming') {
       return (
-        <span className="results-badge badge-upcoming">
-          <Clock size={13} /> Upcoming
+        <span className="results-badge badge-upcoming" role="status" aria-label="Contest Status: Upcoming">
+          <Clock size={13} aria-hidden="true" /> Upcoming
         </span>
       );
     }
     return (
-      <span className="results-badge badge-ended">
-        <Clock size={13} /> Ended (Standings Concluded)
+      <span className="results-badge badge-ended" role="status" aria-label="Contest Status: Ended (Standings Concluded)">
+        <Clock size={13} aria-hidden="true" /> Ended (Standings Concluded)
       </span>
     );
   };
@@ -231,9 +251,9 @@ export default function ContestResultsView({
       </div>
 
       {/* 2. Official Status / Celebration Banner */}
-      {contest?.isRatingFinalized ? (
-        <div className="results-status-banner banner-finalized" role="alert">
-          <div className="status-banner-icon">
+      {contest?.isRatingFinalized || contest?.freezeState === 'FINAL' ? (
+        <div className="results-status-banner banner-finalized" role="alert" aria-live="polite">
+          <div className="status-banner-icon" aria-hidden="true">
             <Sparkles size={22} className="sparkle-anim" />
           </div>
           <div className="status-banner-content">
@@ -249,9 +269,22 @@ export default function ContestResultsView({
             </p>
           </div>
         </div>
+      ) : contest?.isFrozen || contest?.freezeState === 'FROZEN' ? (
+        <div className="results-status-banner banner-frozen" role="alert" aria-live="polite">
+          <div className="status-banner-icon" aria-hidden="true">
+            <Lock size={20} />
+          </div>
+          <div className="status-banner-content">
+            <h4>Leaderboard is Currently Frozen</h4>
+            <p>
+              Provisional rankings are shown. Submissions made during the final{' '}
+              {contest.leaderboardFreezeMinutes ?? 60} minutes will be unveiled when the contest is finalized.
+            </p>
+          </div>
+        </div>
       ) : contest?.runtimeState === 'ended' ? (
-        <div className="results-status-banner banner-ended" role="alert">
-          <div className="status-banner-icon">
+        <div className="results-status-banner banner-ended" role="alert" aria-live="polite">
+          <div className="status-banner-icon" aria-hidden="true">
             <Clock size={20} />
           </div>
           <div className="status-banner-content">
@@ -259,19 +292,6 @@ export default function ContestResultsView({
             <p>
               The contest duration has completed and code submissions are closed.
               Final standings are calculated below. Official rating adjustments will be finalized shortly.
-            </p>
-          </div>
-        </div>
-      ) : contest?.isFrozen ? (
-        <div className="results-status-banner banner-frozen" role="alert">
-          <div className="status-banner-icon">
-            <Lock size={20} />
-          </div>
-          <div className="status-banner-content">
-            <h4>Leaderboard is Currently Frozen</h4>
-            <p>
-              Provisional rankings are shown. Submissions made during the final{' '}
-              {contest.leaderboardFreezeMinutes} minutes will be unveiled when the contest is finalized.
             </p>
           </div>
         </div>

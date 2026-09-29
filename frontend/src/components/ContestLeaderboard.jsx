@@ -85,6 +85,26 @@ export default function ContestLeaderboard({
     fetchLeaderboard(true);
   }, [fetchLeaderboard]);
 
+  // Tab Visibility & Online Event Listeners (re-fetch authoritative state when returning)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchLeaderboard(false);
+      }
+    };
+    const handleOnline = () => {
+      fetchLeaderboard(false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [fetchLeaderboard]);
+
   // Live Auto-Refresh Polling (every 10s during active contests)
   useEffect(() => {
     if (!isLiveActive || !data?.contest) return;
@@ -106,18 +126,45 @@ export default function ContestLeaderboard({
     };
   }, [isLiveActive, data?.contest, fetchLeaderboard]);
 
-  // Server-Authoritative Live Contest Countdown Clock
+  // Server-Authoritative Live Contest Countdown Clock with clock-skew adjustment
   useEffect(() => {
     if (!data?.contest) return;
 
-    const endTime = new Date(data.contest.endTime).getTime();
+    const contestObj = data.contest;
+    const endTime = new Date(contestObj.endTime).getTime();
+    if (isNaN(endTime)) return;
+
+    // Calculate server clock skew
+    const serverTimeMs = contestObj.serverTime ? new Date(contestObj.serverTime).getTime() : NaN;
+    const clockSkew = !isNaN(serverTimeMs) ? serverTimeMs - Date.now() : 0;
+
+    const freezeTimeMs = contestObj.freezeTime ? new Date(contestObj.freezeTime).getTime() : NaN;
+    let hasTriggeredFreezeRefetch = Boolean(contestObj.isFrozen || contestObj.freezeState === 'FROZEN');
+    let hasTriggeredEndRefetch = contestObj.runtimeState === 'ended';
 
     const updateTimer = () => {
-      const now = Date.now();
-      const diff = endTime - now;
+      // Estimate current server time based on known clock skew
+      const currentServerNow = Date.now() + clockSkew;
+      const diff = endTime - currentServerNow;
+
+      // Check if we just crossed into the freeze window while viewing
+      if (
+        !hasTriggeredFreezeRefetch &&
+        contestObj.leaderboardFreezeEnabled &&
+        !isNaN(freezeTimeMs) &&
+        currentServerNow >= freezeTimeMs &&
+        currentServerNow < endTime
+      ) {
+        hasTriggeredFreezeRefetch = true;
+        fetchLeaderboard(false);
+      }
 
       if (diff <= 0) {
         setTimeRemaining('00:00:00');
+        if (!hasTriggeredEndRefetch) {
+          hasTriggeredEndRefetch = true;
+          fetchLeaderboard(false);
+        }
       } else {
         const hrs = Math.floor(diff / (1000 * 60 * 60));
         const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -134,7 +181,7 @@ export default function ContestLeaderboard({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [data?.contest]);
+  }, [data?.contest, fetchLeaderboard]);
 
   const getTierDetails = (rating) => {
     const r = rating || 1200;
@@ -149,37 +196,37 @@ export default function ContestLeaderboard({
 
   const getStatusBadge = (contest) => {
     if (!contest) return null;
-    if (contest.isRatingFinalized) {
+    if (contest.isRatingFinalized || contest.freezeState === 'FINAL') {
       return (
-        <span className="leaderboard-state-badge badge-finalized">
-          <Trophy size={14} /> Finalized
+        <span className="leaderboard-state-badge badge-finalized" role="status" aria-label="Contest Status: Finalized">
+          <Trophy size={14} aria-hidden="true" /> Finalized
         </span>
       );
     }
-    if (contest.isFrozen) {
+    if (contest.isFrozen || contest.freezeState === 'FROZEN') {
       return (
-        <span className="leaderboard-state-badge badge-frozen">
-          <Lock size={14} /> Frozen
+        <span className="leaderboard-state-badge badge-frozen" role="status" aria-label="Contest Status: Leaderboard Frozen">
+          <Lock size={14} aria-hidden="true" /> Frozen
         </span>
       );
     }
     if (contest.runtimeState === 'running') {
       return (
-        <span className="leaderboard-state-badge badge-live">
-          <span className="live-dot-pulse" /> Live
+        <span className="leaderboard-state-badge badge-live" role="status" aria-label="Contest Status: Live">
+          <span className="live-dot-pulse" aria-hidden="true" /> Live
         </span>
       );
     }
     if (contest.runtimeState === 'upcoming') {
       return (
-        <span className="leaderboard-state-badge badge-upcoming">
-          <Clock size={14} /> Upcoming
+        <span className="leaderboard-state-badge badge-upcoming" role="status" aria-label="Contest Status: Upcoming">
+          <Clock size={14} aria-hidden="true" /> Upcoming
         </span>
       );
     }
     return (
-      <span className="leaderboard-state-badge badge-ended">
-        <Clock size={14} /> Ended
+      <span className="leaderboard-state-badge badge-ended" role="status" aria-label="Contest Status: Ended">
+        <Clock size={14} aria-hidden="true" /> Ended
       </span>
     );
   };
@@ -267,16 +314,16 @@ export default function ContestLeaderboard({
       </div>
 
       {/* Freeze Alert Banner */}
-      {contest?.isFrozen && (
-        <div className="leaderboard-freeze-banner" role="alert">
-          <div className="freeze-banner-icon">
+      {(contest?.isFrozen || contest?.freezeState === 'FROZEN') && (
+        <div className="leaderboard-freeze-banner" role="alert" aria-live="polite">
+          <div className="freeze-banner-icon" aria-hidden="true">
             <Lock size={20} />
           </div>
           <div className="freeze-banner-content">
             <h4>Leaderboard is Currently Frozen</h4>
             <p>
               Submissions continue to be evaluated normally by the judge. Visible rankings are frozen for the final{' '}
-              {contest.leaderboardFreezeMinutes} minutes. Final standings and rating changes will be unveiled when the contest concludes.
+              {contest.leaderboardFreezeMinutes ?? 60} minutes. Final standings and rating changes will be unveiled when the contest concludes.
             </p>
           </div>
         </div>

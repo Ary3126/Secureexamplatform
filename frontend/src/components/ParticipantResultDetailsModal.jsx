@@ -200,12 +200,15 @@ export default function ParticipantResultDetailsModal({
           </div>
 
           <div className="participant-header-actions">
-            {isManager && contest?.isFrozen && (
+            {isManager && (contest?.isFrozen || contest?.freezeState === 'FROZEN') && (
               <button
                 type="button"
                 className={`freeze-toggle-btn ${freezeOverride ? 'active' : ''}`}
                 onClick={() => setFreezeOverride(!freezeOverride)}
                 title={freezeOverride ? 'Viewing unmasked live results' : 'Viewing frozen masked results'}
+                aria-label={freezeOverride ? 'Freeze override active: viewing unmasked live results' : 'Viewing frozen masked results'}
+                role="switch"
+                aria-checked={freezeOverride}
               >
                 {freezeOverride ? <Unlock size={13} /> : <Lock size={13} />}
                 <span>{freezeOverride ? 'Unmasked (Live)' : 'Frozen View'}</span>
@@ -244,12 +247,12 @@ export default function ParticipantResultDetailsModal({
           ) : (
             <>
               {/* Leaderboard Freeze Warning Banner */}
-              {contest?.isFrozen && !freezeOverride && (
-                <div className="freeze-notice-banner">
-                  <Lock size={16} style={{ flexShrink: 0, color: '#fbbf24' }} />
+              {(contest?.isFrozen || contest?.freezeState === 'FROZEN') && !freezeOverride && (
+                <div className="freeze-notice-banner" role="alert" aria-live="polite">
+                  <Lock size={16} style={{ flexShrink: 0, color: '#fbbf24' }} aria-hidden="true" />
                   <div>
                     <strong>Leaderboard Freeze Active:</strong> Submissions made during the final{' '}
-                    {contest.leaderboardFreezeMinutes} minutes are hidden from public view. Scores
+                    {contest.leaderboardFreezeMinutes ?? 60} minutes are hidden from public view. Scores
                     and rankings will be finalized when the contest concludes.
                   </div>
                 </div>
