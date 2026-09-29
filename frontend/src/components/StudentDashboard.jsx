@@ -34,6 +34,9 @@ export default function StudentDashboard({
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [enrollingContestId, setEnrollingContestId] = useState(null);
+  const [enrollSuccess, setEnrollSuccess] = useState(null);
+  const [enrollError, setEnrollError] = useState(null);
 
   useEffect(() => {
     fetchDashboard();
@@ -58,6 +61,55 @@ export default function StudentDashboard({
       setError(err.message || 'Network error fetching dashboard');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEnroll = async (contestId, contestTitle) => {
+    if (enrollingContestId) return;
+    setEnrollingContestId(contestId);
+    setEnrollError(null);
+    setEnrollSuccess(null);
+    try {
+      const res = await fetch(`/api/contests/${contestId}/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (res.status === 201) {
+        setEnrollSuccess(`Successfully registered for "${contestTitle || 'Contest'}"!`);
+        // Refresh authoritative dashboard data
+        const refreshRes = await fetch('/api/users/dashboard', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          setDashboardData(refreshData);
+        }
+      } else if (res.status === 409) {
+        setEnrollSuccess(`You are already registered for "${contestTitle || 'Contest'}".`);
+        const refreshRes = await fetch('/api/users/dashboard', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          setDashboardData(refreshData);
+        }
+      } else if (res.status === 401) {
+        setEnrollError('Authentication required. Please log in to enroll.');
+      } else if (res.status === 403) {
+        setEnrollError(data.message || 'Contest registration is restricted to student accounts.');
+      } else if (res.status === 404) {
+        setEnrollError('Contest not found or no longer available.');
+      } else {
+        setEnrollError(data.message || 'Failed to register for contest');
+      }
+    } catch (err) {
+      setEnrollError(err.message || 'Network error occurred during registration');
+    } finally {
+      setEnrollingContestId(null);
     }
   };
 
@@ -254,6 +306,61 @@ export default function StudentDashboard({
         )}
       </section>
 
+      {/* Enrollment Alert Notifications */}
+      {enrollSuccess && (
+        <div className="dash-alert dash-alert-success" data-testid="enroll-success-banner" style={{
+          marginBottom: '16px',
+          padding: '12px 16px',
+          background: 'rgba(16, 185, 129, 0.12)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          color: '#10b981',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircle2 className="w-4 h-4" />
+            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{enrollSuccess}</span>
+          </div>
+          <button
+            type="button"
+            data-testid="dismiss-enroll-success"
+            onClick={() => setEnrollSuccess(null)}
+            style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontSize: '1.2rem', padding: '0 4px', lineHeight: 1 }}
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
+      {enrollError && (
+        <div className="dash-alert dash-alert-error" data-testid="enroll-error-banner" style={{
+          marginBottom: '16px',
+          padding: '12px 16px',
+          background: 'rgba(239, 68, 68, 0.12)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          color: '#ef4444',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle className="w-4 h-4" />
+            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{enrollError}</span>
+          </div>
+          <button
+            type="button"
+            data-testid="dismiss-enroll-error"
+            onClick={() => setEnrollError(null)}
+            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1.2rem', padding: '0 4px', lineHeight: 1 }}
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* 3. Main Dashboard Grid */}
       <div className="dashboard-grid">
         {/* Left Column: Contests & Saved Problems */}
@@ -443,7 +550,32 @@ export default function StudentDashboard({
                         </div>
                       </div>
                       <div className="contest-card-actions">
-                        <span className="badge-status-upcoming">Registered</span>
+                        {c.isEnrolled ? (
+                          <span className="badge-status-enrolled" data-testid={`enrolled-badge-${c.id}`}>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Enrolled</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm btn-enroll-contest"
+                            data-testid={`enroll-btn-${c.id}`}
+                            disabled={enrollingContestId === c.id}
+                            onClick={() => handleEnroll(c.id, c.title)}
+                          >
+                            {enrollingContestId === c.id ? (
+                              <>
+                                <div className="btn-spinner" style={{ width: '13px', height: '13px', borderWidth: '2px', marginRight: '6px' }}></div>
+                                <span>Registering...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5" style={{ marginRight: '4px' }} />
+                                <span>Register Now</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

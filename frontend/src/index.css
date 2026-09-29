@@ -2821,6 +2821,20 @@ select optgroup {
   border-radius: var(--radius-sm);
 }
 
+.badge-status-enrolled {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #10b981;
+  background-color: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+
 /* Enrolled Contests Grid */
 .enrolled-contests-grid {
   display: flex;

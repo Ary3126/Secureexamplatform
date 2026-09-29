@@ -28,6 +28,7 @@ import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 import AdminContestCreateModal from './AdminContestCreateModal';
 import AdminContestEditModal from './AdminContestEditModal';
 import AdminContestProblemList from './AdminContestProblemList';
+import AdminContestParticipantList from './AdminContestParticipantList';
 import './adminContestManagement.css';
 
 /**
@@ -117,6 +118,7 @@ export default function AdminContestManagement({
   const [editContest, setEditContest] = useState(null);
   // confirmAction holds { type: 'archive' | 'unpublish', contestId, contestTitle } or null
   const [confirmAction, setConfirmAction] = useState(null);
+  const [inspectDrawerTab, setInspectDrawerTab] = useState('problems');
   const totalPages = Math.max(Math.ceil(totalContests / limit) || 1, 1);
 
   /**
@@ -560,18 +562,30 @@ export default function AdminContestManagement({
 
                       {/* Participants Column */}
                       <td style={{ textAlign: 'center' }}>
-                        <span
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectDrawerTab('participants');
+                            if (onInspectContest) onInspectContest(c.id);
+                          }}
                           style={{
                             fontSize: '0.82rem',
                             fontWeight: '700',
                             color: '#4ade80',
                             background: 'rgba(34, 197, 94, 0.1)',
+                            border: '1px solid rgba(34, 197, 94, 0.25)',
                             padding: '2px 8px',
                             borderRadius: '4px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
                           }}
+                          title="Click to discover enrolled participants"
                         >
+                          <Users size={11} />
                           {c.participantCount || 0}
-                        </span>
+                        </button>
                       </td>
 
                       {/* Scoring Column */}
@@ -595,11 +609,31 @@ export default function AdminContestManagement({
                         <div className="action-buttons-group">
                           {/* Inspect / View Details Button */}
                           <button
-                            onClick={() => onInspectContest && onInspectContest(c.id)}
+                            onClick={() => {
+                              setInspectDrawerTab('problems');
+                              if (onInspectContest) onInspectContest(c.id);
+                            }}
                             className="btn-table-action btn-action-inspect"
                             title="Inspect contest details"
                           >
                             <Eye size={13} /> Inspect
+                          </button>
+
+                          {/* Participants Discovery Button */}
+                          <button
+                            onClick={() => {
+                              setInspectDrawerTab('participants');
+                              if (onInspectContest) onInspectContest(c.id);
+                            }}
+                            className="btn-table-action"
+                            style={{
+                              background: 'rgba(56, 189, 248, 0.08)',
+                              color: '#38bdf8',
+                              border: '1px solid rgba(56, 189, 248, 0.2)',
+                            }}
+                            title="Discover & inspect participants"
+                          >
+                            <Users size={13} />
                           </button>
 
                           {/* Edit Button (managers only) */}
@@ -966,19 +1000,82 @@ export default function AdminContestManagement({
                     </div>
                   )}
 
-                  {/* Attached Problems List (Phase 7.5.5.2 & 7.5.5.3) */}
-                  <AdminContestProblemList
-                    contestId={inspectedContest.id}
-                    contest={inspectedContest}
-                    currentUser={currentUser}
-                    problems={inspectedContest.problems || []}
-                    loading={inspectLoading}
-                    token={currentUser?.token}
-                    onRetry={() => onInspectContest && onInspectContest(inspectedContest.id)}
-                    onProblemAdded={() => onInspectContest && onInspectContest(inspectedContest.id)}
-                    onProblemRemoved={() => onInspectContest && onInspectContest(inspectedContest.id)}
-                    onProblemReordered={() => onInspectContest && onInspectContest(inspectedContest.id)}
-                  />
+                  {/* Segmented Tab Navigation for Inspection Drawer (Problems vs Participants) */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '8px',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                      paddingBottom: '10px',
+                      marginTop: '6px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setInspectDrawerTab('problems')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        background: inspectDrawerTab === 'problems' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                        border: inspectDrawerTab === 'problems' ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid transparent',
+                        color: inspectDrawerTab === 'problems' ? '#38bdf8' : '#94a3b8',
+                        borderRadius: '6px',
+                        fontWeight: '600',
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <Layers size={14} /> Attached Problems ({inspectedContest.problems?.length || 0})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInspectDrawerTab('participants')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        background: inspectDrawerTab === 'participants' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                        border: inspectDrawerTab === 'participants' ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid transparent',
+                        color: inspectDrawerTab === 'participants' ? '#38bdf8' : '#94a3b8',
+                        borderRadius: '6px',
+                        fontWeight: '600',
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <Users size={14} /> Enrolled Participants ({inspectedContest.participantCount || 0})
+                    </button>
+                  </div>
+
+                  {/* Render Tab Content */}
+                  {inspectDrawerTab === 'problems' ? (
+                    <AdminContestProblemList
+                      contestId={inspectedContest.id}
+                      contest={inspectedContest}
+                      currentUser={currentUser}
+                      problems={inspectedContest.problems || []}
+                      loading={inspectLoading}
+                      token={currentUser?.token}
+                      onRetry={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                      onProblemAdded={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                      onProblemRemoved={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                      onProblemReordered={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                    />
+                  ) : (
+                    <AdminContestParticipantList
+                      contestId={inspectedContest.id}
+                      contest={inspectedContest}
+                      currentUser={currentUser}
+                      token={currentUser?.token}
+                      onRefreshParent={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                    />
+                  )}
                 </>
               )}
             </div>

@@ -219,8 +219,14 @@ router.delete(
 );
 
 /**
+ * @route GET /api/contests/:id/enrollment
+ * Check current user enrollment status in a contest (Authenticated)
+ */
+router.get('/:id/enrollment', mediumProtectionRateLimiter, contestController.getMyEnrollmentStatus);
+
+/**
  * @route POST /api/contests/:id/join
- * Join a published contest (all authenticated users)
+ * Join / Enroll in a published contest (Students only)
  */
 router.post('/:id/join', contestActionRateLimiter, contestController.joinContest);
 

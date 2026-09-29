@@ -1392,20 +1392,101 @@ class ContestModel {
     return res.rows[0] || null;
   }
 
-  static async getContestParticipants(contestId) {
-    const text = `
+  static async getContestParticipants(contestId, options = {}) {
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      sortBy = 'joinedAt',
+      sortOrder = 'ASC',
+      all = false,
+    } = options || {};
+
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (parsedPage - 1) * parsedLimit;
+
+    const values = [contestId];
+    let whereClause = `WHERE cp.contest_id = $1`;
+
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      values.push(`%${search.trim().toLowerCase()}%`);
+      const searchParamIdx = values.length;
+      whereClause += ` AND (
+        LOWER(u.username) LIKE $${searchParamIdx} 
+        OR LOWER(u.full_name) LIKE $${searchParamIdx} 
+        OR LOWER(u.email) LIKE $${searchParamIdx}
+        OR LOWER(COALESCE(u.institution, '')) LIKE $${searchParamIdx}
+      )`;
+    }
+
+    // 1. Total count query
+    const countSql = `
+      SELECT COUNT(*)::int AS total
+      FROM contest_participants cp
+      JOIN users u ON cp.user_id = u.id
+      ${whereClause};
+    `;
+    const countRes = await db.query(countSql, values);
+    const total = countRes.rows[0]?.total || 0;
+
+    // 2. Sort column mapping with strict whitelist
+    const SORT_MAP = {
+      joinedat: 'cp.joined_at',
+      joined_at: 'cp.joined_at',
+      username: 'u.username',
+      fullname: 'u.full_name',
+      full_name: 'u.full_name',
+      email: 'u.email',
+      currentrating: 'u.current_rating',
+      current_rating: 'u.current_rating',
+      userid: 'u.id',
+      user_id: 'u.id',
+      id: 'u.id',
+    };
+
+    const normalizedSortBy = String(sortBy || 'joinedAt').toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const sortCol = SORT_MAP[normalizedSortBy] || 'cp.joined_at';
+    const orderDirection = String(sortOrder).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+    // 3. Paginated data query
+    let dataSql = `
       SELECT 
         u.id AS "userId",
         u.username,
         u.full_name AS "fullName",
+        u.email,
+        u.institution,
+        u.current_rating AS "currentRating",
+        u.highest_rating AS "highestRating",
+        u.rating_status AS "ratingStatus",
+        u.avatar_url AS "avatarUrl",
         cp.joined_at AS "joinedAt"
       FROM contest_participants cp
       JOIN users u ON cp.user_id = u.id
-      WHERE cp.contest_id = $1
-      ORDER BY cp.joined_at ASC;
+      ${whereClause}
+      ORDER BY ${sortCol} ${orderDirection}, u.id ASC
     `;
-    const res = await db.query(text, [contestId]);
-    return res.rows;
+
+    if (!all) {
+      values.push(parsedLimit);
+      const limitParamIdx = values.length;
+      values.push(offset);
+      const offsetParamIdx = values.length;
+      dataSql += ` LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`;
+    }
+
+    dataSql += `;`;
+
+    const dataRes = await db.query(dataSql, values);
+
+    return {
+      participants: dataRes.rows,
+      total,
+      page: parsedPage,
+      limit: parsedLimit,
+      totalPages: Math.ceil(total / parsedLimit) || 1,
+    };
   }
 }
 

@@ -134,8 +134,20 @@ const getContestById = async (req, res, next) => {
     const problems = await ContestModel.getContestProblems(id);
     const formatted = formatContest(contest);
 
+    let isEnrolled = false;
+    let enrolledAt = null;
+    if (req.user && req.user.id) {
+      const participant = await ContestModel.findParticipant(contest.id, req.user.id);
+      if (participant) {
+        isEnrolled = true;
+        enrolledAt = participant.joinedAt;
+      }
+    }
+
     return res.status(200).json({
       ...formatted,
+      isEnrolled,
+      enrolledAt,
       problems,
     });
   } catch (error) {
@@ -1383,13 +1395,155 @@ const bulkRemoveProblemsFromContest = async (req, res, next) => {
 };
 
 /**
- * Join contest (for students and users)
+ * Join / Enroll in a published contest (Students only)
  * @route POST /api/contests/:id/join
  */
 const joinContest = async (req, res, next) => {
   try {
-    const { id: contestId } = req.params;
+    const { id: rawContestId } = req.params;
+    const contestId = Number(rawContestId);
+
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    // Role check: Only students can participate as competitors
+    if (req.user.role !== 'student') {
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'CONTEST_ENROLL', role: req.user.role },
+          req,
+        });
+      }
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: Contest self-enrollment is reserved for students. Administrative users do not participate as competitors.',
+      });
+    }
+
     const userId = req.user.id;
+
+    // Verify contest existence
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    // Check archived status
+    if (contest.status === 'archived') {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Cannot join contest: Contest is archived',
+      });
+    }
+
+    // Must be published (drafts are private / unenrollable)
+    if (contest.status !== 'published') {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Cannot join contest: Contest is not yet published',
+      });
+    }
+
+    // Check runtimeState (ended and archived contests cannot be joined)
+    const runtimeState = getContestRuntimeState(contest);
+    if (runtimeState === 'ended') {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Cannot join contest: Contest has already ended',
+      });
+    }
+
+    if (runtimeState === 'archived') {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Cannot join contest: Contest is archived',
+      });
+    }
+
+    // Check if already joined (idempotency / duplicate check)
+    const existing = await ContestModel.findParticipant(contestId, userId);
+    if (existing) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'You have already joined this contest',
+        participant: existing,
+      });
+    }
+
+    // Atomic insertion with catch for race condition unique violation (23505)
+    try {
+      const participant = await ContestModel.addParticipant(contestId, userId);
+
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PARTICIPANT_JOINED',
+          resourceType: 'contest',
+          resourceId: contest.id,
+          outcome: 'success',
+          metadata: { userId, contestId: contest.id },
+          req,
+        });
+      }
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'Successfully joined contest',
+        participant,
+      });
+    } catch (dbErr) {
+      if (dbErr.code === '23505') {
+        const participant = await ContestModel.findParticipant(contestId, userId);
+        return res.status(409).json({
+          status: 'error',
+          statusCode: 409,
+          message: 'You have already joined this contest',
+          participant: participant || { contestId, userId },
+        });
+      }
+      throw dbErr;
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Check current user enrollment status in a contest
+ * @route GET /api/contests/:id/enrollment
+ */
+const getMyEnrollmentStatus = async (req, res, next) => {
+  try {
+    const { id: rawContestId } = req.params;
+    const contestId = Number(rawContestId);
+
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
 
     const contest = await ContestModel.findContestById(contestId);
     if (!contest) {
@@ -1400,40 +1554,13 @@ const joinContest = async (req, res, next) => {
       });
     }
 
-    // Must be published
-    if (contest.status !== 'published') {
-      return res.status(400).json({
-        status: 'error',
-        statusCode: 400,
-        message: 'Cannot join contest: Contest is not yet published',
-      });
-    }
+    const participant = await ContestModel.findParticipant(contestId, req.user.id);
 
-    // Check if ended
-    const runtimeState = getContestRuntimeState(contest);
-    if (runtimeState === 'ended') {
-      return res.status(400).json({
-        status: 'error',
-        statusCode: 400,
-        message: 'Cannot join contest: Contest has already ended',
-      });
-    }
-
-    // Check if already joined
-    const existing = await ContestModel.findParticipant(contestId, userId);
-    if (existing) {
-      return res.status(409).json({
-        status: 'error',
-        statusCode: 409,
-        message: 'You have already joined this contest',
-      });
-    }
-
-    const participant = await ContestModel.addParticipant(contestId, userId);
-
-    return res.status(201).json({
-      message: 'Successfully joined contest',
-      participant,
+    return res.status(200).json({
+      contestId,
+      isEnrolled: Boolean(participant),
+      enrolledAt: participant ? participant.joinedAt : null,
+      participant: participant || null,
     });
   } catch (error) {
     next(error);
@@ -1446,7 +1573,16 @@ const joinContest = async (req, res, next) => {
  */
 const getContestParticipants = async (req, res, next) => {
   try {
-    const { id: contestId } = req.params;
+    const { id: rawContestId } = req.params;
+    const contestId = parseInt(rawContestId, 10);
+
+    if (isNaN(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID: must be a positive integer',
+      });
+    }
 
     const contest = await ContestModel.findContestById(contestId);
     if (!contest) {
@@ -1458,6 +1594,17 @@ const getContestParticipants = async (req, res, next) => {
     }
 
     if (!canManageResource(req.user, contest)) {
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contest.id,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'GET_CONTEST_PARTICIPANTS' },
+          req,
+        });
+      }
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -1465,12 +1612,37 @@ const getContestParticipants = async (req, res, next) => {
       });
     }
 
-    const participants = await ContestModel.getContestParticipants(contestId);
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      q = '',
+      sortBy = 'joinedAt',
+      sort_by = '',
+      sortOrder = 'ASC',
+      sort_order = '',
+    } = req.query;
+
+    const effectiveSearch = (search || q || '').trim();
+    const effectiveSortBy = sortBy || sort_by || 'joinedAt';
+    const effectiveSortOrder = sortOrder || sort_order || 'ASC';
+
+    const result = await ContestModel.getContestParticipants(contestId, {
+      page,
+      limit,
+      search: effectiveSearch,
+      sortBy: effectiveSortBy,
+      sortOrder: effectiveSortOrder,
+    });
 
     return res.status(200).json({
       contestId,
-      participantCount: participants.length,
-      participants,
+      participantCount: result.total,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+      participants: result.participants,
     });
   } catch (error) {
     next(error);
@@ -1726,6 +1898,7 @@ module.exports = {
   bulkAddProblemsToContest,
   bulkRemoveProblemsFromContest,
   joinContest,
+  getMyEnrollmentStatus,
   getContestParticipants,
   finalizeContestRatings,
   getContestLeaderboard,

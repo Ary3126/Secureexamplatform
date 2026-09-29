@@ -276,10 +276,15 @@ const getStudentDashboard = async (req, res, next) => {
       RatingModel.getGlobalRank(userId),
     ]);
 
+    const joinedContestIds = new Set(rawJoined.map((j) => j.id));
     const formattedContests = allContests.map(formatContest);
-    const runningContests = formattedContests.filter((c) => c.runtimeState === 'running');
-    const upcomingContests = formattedContests.filter((c) => c.runtimeState === 'upcoming');
-    const joinedContests = rawJoined.map(formatContest);
+    const runningContests = formattedContests
+      .filter((c) => c.runtimeState === 'running')
+      .map((c) => ({ ...c, isEnrolled: joinedContestIds.has(c.id) }));
+    const upcomingContests = formattedContests
+      .filter((c) => c.runtimeState === 'upcoming')
+      .map((c) => ({ ...c, isEnrolled: joinedContestIds.has(c.id) }));
+    const joinedContests = rawJoined.map(formatContest).map((c) => ({ ...c, isEnrolled: true }));
 
     const profileSummary = user ? sanitizeUser(user) : null;
     if (profileSummary) {
