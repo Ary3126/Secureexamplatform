@@ -242,6 +242,39 @@ router.get(
 );
 
 /**
+ * @route GET /api/contests/:id/search-students
+ * Search available students eligible to be added to this contest
+ */
+router.get(
+  '/:id/search-students',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  mediumProtectionRateLimiter,
+  contestController.searchContestCandidateStudents
+);
+
+/**
+ * @route POST /api/contests/:id/participants
+ * Manually add a participant to a contest (Manager only)
+ */
+router.post(
+  '/:id/participants',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  contestController.addContestParticipant
+);
+
+/**
+ * @route DELETE /api/contests/:id/participants/:userId
+ * Manually remove a participant from a contest (Manager only)
+ */
+router.delete(
+  '/:id/participants/:userId',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  contestController.removeContestParticipant
+);
+
+/**
  * @route POST /api/contests/:id/finalize-ratings
  * Finalize contest ratings (restricted to contest managers/admins)
  */

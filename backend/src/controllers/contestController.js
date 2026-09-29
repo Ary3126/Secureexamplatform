@@ -1,7 +1,9 @@
 const ContestModel = require('../models/contestModel');
+const UserModel = require('../models/userModel');
 const ProblemModel = require('../models/problemModel');
 const RatingService = require('../services/ratingService');
 const AuditLogger = require('../services/auditLogger');
+const db = require('../config/db');
 const {
   canManageResource,
   formatContest,
@@ -1650,6 +1652,350 @@ const getContestParticipants = async (req, res, next) => {
 };
 
 /**
+ * Manually add a participant to a contest (Manager only)
+ * @route POST /api/contests/:id/participants
+ */
+const addContestParticipant = async (req, res, next) => {
+  try {
+    const { id: rawContestId } = req.params;
+    const contestId = Number(rawContestId);
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const { userId: rawUserId, studentId: rawStudentId } = req.body || {};
+    const targetUserId = Number(rawUserId !== undefined ? rawUserId : rawStudentId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid student ID format. Must provide a valid positive integer userId.',
+      });
+    }
+
+    // 1. Verify contest existence
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    // 2. Authorization / BOLA check: Only authorized managers (owning professor, contest_admin, super_admin)
+    if (!canManageResource(req.user, contest)) {
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'ADD_PARTICIPANT', targetUserId },
+          req,
+        });
+      }
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to manage participants for this contest',
+      });
+    }
+
+    // 3. Lifecycle check: ended and archived contests are locked against adding participants
+    const runtimeState = getContestRuntimeState(contest);
+    if (runtimeState === 'archived' || contest.status === 'archived') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot add participants: Contest is archived',
+      });
+    }
+
+    if (runtimeState === 'ended') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot add participants: Contest has already ended',
+      });
+    }
+
+    // 4. Verify target user exists, is active, and has role 'student'
+    const studentUser = await UserModel.findUserById(targetUserId);
+    if (!studentUser) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Student with ID ${targetUserId} not found`,
+      });
+    }
+
+    if (studentUser.role !== 'student') {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: `Cannot add user '${studentUser.username}' as participant: Only student accounts can participate as competitors`,
+      });
+    }
+
+    if (!studentUser.isActive && !studentUser.is_active) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: `Cannot add student '${studentUser.username}': User account is inactive`,
+      });
+    }
+
+    // 5. Duplicate check
+    const existing = await ContestModel.findParticipant(contestId, targetUserId);
+    if (existing) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: `Student '${studentUser.username}' is already enrolled in this contest`,
+        participant: existing,
+      });
+    }
+
+    // 6. Insert participant with race condition catch (code 23505)
+    try {
+      const participant = await ContestModel.addParticipant(contestId, targetUserId);
+
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PARTICIPANT_ADDED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'success',
+          metadata: {
+            studentId: targetUserId,
+            studentUsername: studentUser.username,
+            contestId,
+            runtimeState,
+          },
+          req,
+        });
+      }
+
+      return res.status(201).json({
+        status: 'success',
+        message: `Successfully added ${studentUser.fullName || studentUser.username} to contest`,
+        participant: {
+          contestId: participant.contestId,
+          userId: participant.userId,
+          joinedAt: participant.joinedAt,
+          username: studentUser.username,
+          fullName: studentUser.fullName || studentUser.full_name,
+          email: studentUser.email,
+        },
+      });
+    } catch (dbErr) {
+      if (dbErr.code === '23505') {
+        const participant = await ContestModel.findParticipant(contestId, targetUserId);
+        return res.status(409).json({
+          status: 'error',
+          statusCode: 409,
+          message: `Student '${studentUser.username}' is already enrolled in this contest`,
+          participant: participant || { contestId, userId: targetUserId },
+        });
+      }
+      throw dbErr;
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Manually remove a participant from a contest (Manager only)
+ * @route DELETE /api/contests/:id/participants/:userId
+ */
+const removeContestParticipant = async (req, res, next) => {
+  try {
+    const { id: rawContestId, userId: rawUserId } = req.params;
+    const contestId = Number(rawContestId);
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const targetUserId = Number(rawUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid user ID format. ID must be a positive integer.',
+      });
+    }
+
+    // 1. Verify contest existence
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    // 2. Authorization / BOLA check
+    if (!canManageResource(req.user, contest)) {
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'REMOVE_PARTICIPANT', targetUserId },
+          req,
+        });
+      }
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to manage participants for this contest',
+      });
+    }
+
+    // 3. Lifecycle check: ended and archived contests are locked against removing participants
+    const runtimeState = getContestRuntimeState(contest);
+    if (runtimeState === 'archived' || contest.status === 'archived') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot remove participants: Contest is archived',
+      });
+    }
+
+    if (runtimeState === 'ended') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot remove participants: Contest has already ended',
+      });
+    }
+
+    // 4. Verify participant currently exists in this contest
+    const existing = await ContestModel.findParticipant(contestId, targetUserId);
+    if (!existing) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Participant with user ID ${targetUserId} not found in this contest`,
+      });
+    }
+
+    // 5. Dependency check: protect historical submissions and contest integrity
+    const subCheck = await db.query(
+      'SELECT 1 FROM submissions WHERE contest_id = $1 AND user_id = $2 LIMIT 1;',
+      [contestId, targetUserId]
+    );
+    if (subCheck.rowCount > 0) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot remove participant: User has submitted solutions in this contest. Historical submission records must be preserved.',
+      });
+    }
+
+    // 6. Delete participant mapping atomically
+    const removed = await ContestModel.removeParticipant(contestId, targetUserId);
+    if (!removed) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Participant with user ID ${targetUserId} not found in this contest`,
+      });
+    }
+
+    // 7. Audit log
+    if (AuditLogger && AuditLogger.logAction) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PARTICIPANT_REMOVED',
+        resourceType: 'contest',
+        resourceId: contestId,
+        outcome: 'success',
+        metadata: {
+          studentId: targetUserId,
+          contestId,
+          runtimeState,
+        },
+        req,
+      });
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Participant removed successfully from contest',
+      contestId,
+      userId: targetUserId,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Search active students eligible to be added to this contest
+ * @route GET /api/contests/:id/search-students
+ */
+const searchContestCandidateStudents = async (req, res, next) => {
+  try {
+    const { id: rawContestId } = req.params;
+    const contestId = Number(rawContestId);
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    if (!canManageResource(req.user, contest)) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to manage this contest',
+      });
+    }
+
+    const { search = '', limit = 10 } = req.query;
+    const students = await ContestModel.searchAvailableStudents(contestId, {
+      search,
+      limit,
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      count: students.length,
+      students,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Finalize ratings for a contest (Professors/Contest Admins/Super Admins)
  * @route POST /api/contests/:id/finalize-ratings
  */
@@ -1900,6 +2246,9 @@ module.exports = {
   joinContest,
   getMyEnrollmentStatus,
   getContestParticipants,
+  addContestParticipant,
+  removeContestParticipant,
+  searchContestCandidateStudents,
   finalizeContestRatings,
   getContestLeaderboard,
 };

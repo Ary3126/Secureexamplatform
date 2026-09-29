@@ -1392,6 +1392,61 @@ class ContestModel {
     return res.rows[0] || null;
   }
 
+  static async removeParticipant(contestId, userId) {
+    const text = `
+      DELETE FROM contest_participants
+      WHERE contest_id = $1 AND user_id = $2
+      RETURNING contest_id AS "contestId", user_id AS "userId";
+    `;
+    const res = await db.query(text, [contestId, userId]);
+    return res.rowCount > 0;
+  }
+
+  static async searchAvailableStudents(contestId, { search = '', limit = 10 } = {}) {
+    const parsedLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
+    const values = [contestId];
+    let whereClause = `
+      WHERE u.role = 'student' 
+        AND u.is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM contest_participants cp 
+          WHERE cp.contest_id = $1 AND cp.user_id = u.id
+        )
+    `;
+
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      values.push(`%${search.trim().toLowerCase()}%`);
+      const searchIdx = values.length;
+      whereClause += ` AND (
+        LOWER(u.username) LIKE $${searchIdx}
+        OR LOWER(u.full_name) LIKE $${searchIdx}
+        OR LOWER(u.email) LIKE $${searchIdx}
+        OR LOWER(COALESCE(u.institution, '')) LIKE $${searchIdx}
+      )`;
+    }
+
+    values.push(parsedLimit);
+    const limitIdx = values.length;
+
+    const query = `
+      SELECT 
+        u.id, 
+        u.username, 
+        u.full_name AS "fullName", 
+        u.email, 
+        u.institution, 
+        u.current_rating AS "currentRating"
+      FROM users u
+      ${whereClause}
+      ORDER BY u.username ASC
+      LIMIT $${limitIdx};
+    `;
+
+    const res = await db.query(query, values);
+    return res.rows;
+  }
+
+
   static async getContestParticipants(contestId, options = {}) {
     const {
       page = 1,

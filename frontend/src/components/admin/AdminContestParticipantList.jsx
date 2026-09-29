@@ -17,6 +17,10 @@ import {
   Eye,
   Shield,
   Clock,
+  UserPlus,
+  UserMinus,
+  CheckCircle,
+  Loader2,
 } from 'lucide-react';
 import AuthoringLoadingState from '../authoring/AuthoringLoadingState';
 
@@ -100,7 +104,23 @@ export default function AdminContestParticipantList({
   // Participant detail inspection modal state
   const [inspectedParticipant, setInspectedParticipant] = useState(null);
 
+  // Phase 7.5.7.4: Manual Participant Management State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [candidateSearchQuery, setCandidateSearchQuery] = useState('');
+  const [candidateStudents, setCandidateStudents] = useState([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState(null);
+  const [isAddingParticipant, setIsAddingParticipant] = useState(false);
+  const [addModalError, setAddModalError] = useState(null);
+
+  const [participantToRemove, setParticipantToRemove] = useState(null);
+  const [isRemovingParticipant, setIsRemovingParticipant] = useState(false);
+  const [removeModalError, setRemoveModalError] = useState(null);
+
+  const [actionNotification, setActionNotification] = useState(null);
+
   const searchDebounceRef = useRef(null);
+  const candidateDebounceRef = useRef(null);
 
   /**
    * Fetch participants from authoritative backend endpoint
@@ -192,6 +212,159 @@ export default function AdminContestParticipantList({
       setSortOrder('ASC');
     }
     setPage(1);
+  };
+
+  // Contest Runtime State & RBAC authorization
+  const getContestRuntimeState = (c) => {
+    if (!c) return 'unknown';
+    if (c.runtimeState) return c.runtimeState;
+    if (c.runtime_state) return c.runtime_state;
+    if (c.status === 'archived') return 'archived';
+    const now = Date.now();
+    const end = new Date(c.endTime || c.end_time).getTime();
+    const start = new Date(c.startTime || c.start_time).getTime();
+    if (end && !isNaN(end) && now > end) return 'ended';
+    if (start && !isNaN(start) && now >= start) return 'running';
+    return c.status || 'draft';
+  };
+
+  const runtimeState = getContestRuntimeState(contest);
+  const isLifecycleLocked = runtimeState === 'ended' || runtimeState === 'archived' || contest?.status === 'archived';
+
+  const canManage = Boolean(
+    currentUser && (
+      currentUser.role === 'super_admin' ||
+      currentUser.role === 'contest_admin' ||
+      (currentUser.role === 'professor' && (
+        contest?.createdBy === currentUser.id ||
+        contest?.created_by === currentUser.id ||
+        contest?.authorId === currentUser.id
+      ))
+    )
+  );
+
+  const fetchCandidateStudents = useCallback(async (query = '') => {
+    if (!contestId) return;
+    setLoadingCandidates(true);
+    setAddModalError(null);
+    try {
+      const authToken = token || currentUser?.token;
+      const params = new URLSearchParams();
+      if (query && query.trim()) {
+        params.set('search', query.trim());
+      }
+      params.set('limit', '10');
+
+      const res = await fetch(`/api/contests/${contestId}/search-students?${params.toString()}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to search candidate students');
+      }
+
+      setCandidateStudents(data.students || []);
+    } catch (err) {
+      setAddModalError(err.message || 'Failed to search candidate students');
+    } finally {
+      setLoadingCandidates(false);
+    }
+  }, [contestId, token, currentUser]);
+
+  const handleOpenAddModal = () => {
+    setIsAddModalOpen(true);
+    setCandidateSearchQuery('');
+    setSelectedCandidate(null);
+    setAddModalError(null);
+    fetchCandidateStudents('');
+  };
+
+  const handleCandidateSearchChange = (e) => {
+    const val = e.target.value;
+    setCandidateSearchQuery(val);
+    if (candidateDebounceRef.current) {
+      clearTimeout(candidateDebounceRef.current);
+    }
+    candidateDebounceRef.current = setTimeout(() => {
+      fetchCandidateStudents(val);
+    }, 300);
+  };
+
+  const handleAddParticipant = async () => {
+    if (!selectedCandidate || !contestId || isAddingParticipant) return;
+    setIsAddingParticipant(true);
+    setAddModalError(null);
+
+    try {
+      const authToken = token || currentUser?.token;
+      const res = await fetch(`/api/contests/${contestId}/participants`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ userId: selectedCandidate.id }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || `Failed to add participant (HTTP ${res.status})`);
+      }
+
+      setActionNotification({
+        type: 'success',
+        message: `Successfully enrolled @${data.participant?.username || selectedCandidate.username} in Contest #${contestId}!`,
+      });
+
+      setIsAddModalOpen(false);
+      setSelectedCandidate(null);
+      setCandidateSearchQuery('');
+      fetchParticipants();
+      if (onRefreshParent) onRefreshParent();
+    } catch (err) {
+      setAddModalError(err.message || 'Failed to add participant');
+    } finally {
+      setIsAddingParticipant(false);
+    }
+  };
+
+  const handleRemoveParticipant = async () => {
+    if (!participantToRemove || !contestId || isRemovingParticipant) return;
+    setIsRemovingParticipant(true);
+    setRemoveModalError(null);
+
+    try {
+      const authToken = token || currentUser?.token;
+      const res = await fetch(`/api/contests/${contestId}/participants/${participantToRemove.userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || `Failed to remove participant (HTTP ${res.status})`);
+      }
+
+      setActionNotification({
+        type: 'success',
+        message: `Participant @${participantToRemove.username} was removed from the contest.`,
+      });
+
+      setParticipantToRemove(null);
+      fetchParticipants();
+      if (onRefreshParent) onRefreshParent();
+    } catch (err) {
+      setRemoveModalError(err.message || 'Failed to remove participant');
+    } finally {
+      setIsRemovingParticipant(false);
+    }
   };
 
   const getSortIcon = (col) => {
@@ -332,8 +505,86 @@ export default function AdminContestParticipantList({
             <RotateCcw size={13} className={loading ? 'animate-spin' : ''} />
             <span style={{ display: 'none', md: 'inline' }}>Refresh</span>
           </button>
+
+          {canManage && (
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              disabled={isLifecycleLocked}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 14px',
+                background: isLifecycleLocked ? 'rgba(51, 65, 85, 0.4)' : '#2563eb',
+                color: isLifecycleLocked ? '#94a3b8' : '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: '600',
+                cursor: isLifecycleLocked ? 'not-allowed' : 'pointer',
+                opacity: isLifecycleLocked ? 0.6 : 1,
+                transition: 'all 0.15s ease',
+              }}
+              title={isLifecycleLocked ? `Cannot add participants to ${runtimeState} contest` : 'Add participant manually'}
+            >
+              <UserPlus size={14} />
+              <span>Add Participant</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Lifecycle lock warning banner */}
+      {isLifecycleLocked && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 14px',
+            borderRadius: '6px',
+            background: 'rgba(234, 179, 8, 0.08)',
+            border: '1px solid rgba(234, 179, 8, 0.25)',
+            color: '#facc15',
+            fontSize: '0.78rem',
+          }}
+        >
+          <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Contest {runtimeState === 'archived' ? 'Archived' : 'Ended'}:</strong> Participant enrollment and removal are closed. Historical records are strictly immutable.
+          </span>
+        </div>
+      )}
+
+      {/* Action Notification Banner */}
+      {actionNotification && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            borderRadius: '6px',
+            background: actionNotification.type === 'error' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.12)',
+            border: `1px solid ${actionNotification.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
+            color: actionNotification.type === 'error' ? '#f87171' : '#4ade80',
+            fontSize: '0.82rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {actionNotification.type === 'error' ? <AlertTriangle size={15} /> : <CheckCircle size={15} />}
+            <span>{actionNotification.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionNotification(null)}
+            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px' }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Main Content Area: Loading, Error, Empty, or Table */}
       {loading ? (
@@ -493,7 +744,7 @@ export default function AdminContestParticipantList({
                       Joined {getSortIcon('joinedAt')}
                     </div>
                   </th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Details</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -600,29 +851,60 @@ export default function AdminContestParticipantList({
                         </div>
                       </td>
 
-                      {/* Inspect Action */}
+                      {/* Action Buttons: Inspect & Remove */}
                       <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => setInspectedParticipant(p)}
-                          style={{
-                            padding: '4px 8px',
-                            background: 'rgba(56, 189, 248, 0.1)',
-                            border: '1px solid rgba(56, 189, 248, 0.25)',
-                            borderRadius: '4px',
-                            color: '#38bdf8',
-                            fontSize: '0.72rem',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            transition: 'all 0.15s ease',
-                          }}
-                          title="Inspect participant details"
-                        >
-                          <Eye size={12} /> View
-                        </button>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setInspectedParticipant(p)}
+                            style={{
+                              padding: '4px 8px',
+                              background: 'rgba(56, 189, 248, 0.1)',
+                              border: '1px solid rgba(56, 189, 248, 0.25)',
+                              borderRadius: '4px',
+                              color: '#38bdf8',
+                              fontSize: '0.72rem',
+                              fontWeight: '600',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'all 0.15s ease',
+                            }}
+                            title="Inspect participant details"
+                          >
+                            <Eye size={12} /> View
+                          </button>
+
+                          {canManage && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setParticipantToRemove(p);
+                                setRemoveModalError(null);
+                              }}
+                              disabled={isLifecycleLocked}
+                              style={{
+                                padding: '4px 8px',
+                                background: isLifecycleLocked ? 'rgba(51, 65, 85, 0.2)' : 'rgba(239, 68, 68, 0.1)',
+                                border: `1px solid ${isLifecycleLocked ? 'rgba(255, 255, 255, 0.08)' : 'rgba(239, 68, 68, 0.25)'}`,
+                                borderRadius: '4px',
+                                color: isLifecycleLocked ? '#64748b' : '#f87171',
+                                fontSize: '0.72rem',
+                                fontWeight: '600',
+                                cursor: isLifecycleLocked ? 'not-allowed' : 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                opacity: isLifecycleLocked ? 0.5 : 1,
+                                transition: 'all 0.15s ease',
+                              }}
+                              title={isLifecycleLocked ? `Cannot remove participant from ${runtimeState} contest` : `Remove @${p.username}`}
+                            >
+                              <UserMinus size={12} /> Remove
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -955,6 +1237,492 @@ export default function AdminContestParticipantList({
                 }}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Participant Modal (Phase 7.5.7.4) */}
+      {isAddModalOpen && (
+        <div
+          className="contest-add-participant-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: '20px',
+          }}
+          onClick={() => {
+            if (!isAddingParticipant) setIsAddModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '520px',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '16px 20px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <UserPlus size={18} color="#38bdf8" />
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '1rem', color: '#f8fafc' }}>
+                    Add Participant
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    Enroll an active student in Contest #{contestId}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                disabled={isAddingParticipant}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: isAddingParticipant ? 'not-allowed' : 'pointer',
+                  padding: '4px',
+                }}
+                title="Close dialog"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto' }}>
+              {/* Search candidate students input */}
+              <div style={{ position: 'relative' }}>
+                <Search
+                  size={14}
+                  style={{
+                    position: 'absolute',
+                    left: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#64748b',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search students by username, name, email..."
+                  value={candidateSearchQuery}
+                  onChange={handleCandidateSearchChange}
+                  disabled={isAddingParticipant}
+                  style={{
+                    width: '100%',
+                    padding: '8px 30px 8px 32px',
+                    background: 'rgba(30, 41, 59, 0.8)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '6px',
+                    color: '#f8fafc',
+                    fontSize: '0.85rem',
+                    outline: 'none',
+                  }}
+                />
+                {candidateSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCandidateSearchQuery('');
+                      fetchCandidateStudents('');
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      padding: '2px',
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Error banner if add error */}
+              {addModalError && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 12px',
+                    borderRadius: '6px',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#f87171',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                  <span>{addModalError}</span>
+                </div>
+              )}
+
+              {/* Candidate Selection List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Available Students ({candidateStudents.length})
+                </div>
+
+                {loadingCandidates ? (
+                  <div style={{ padding: '24px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                    <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto 8px auto', color: '#38bdf8' }} />
+                    <div>Searching available students...</div>
+                  </div>
+                ) : candidateStudents.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '24px 16px',
+                      background: 'rgba(30, 41, 59, 0.3)',
+                      border: '1px dashed rgba(255, 255, 255, 0.08)',
+                      borderRadius: '6px',
+                      textAlign: 'center',
+                      color: '#94a3b8',
+                      fontSize: '0.82rem',
+                    }}
+                  >
+                    {candidateSearchQuery
+                      ? `No unenrolled students match "${candidateSearchQuery}".`
+                      : 'No available unenrolled students found.'}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      maxHeight: '240px',
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {candidateStudents.map((cand) => {
+                      const isSelected = selectedCandidate?.id === cand.id;
+                      const candRatingColor = getRatingColor(cand.current_rating || cand.currentRating);
+                      return (
+                        <div
+                          key={cand.id}
+                          onClick={() => !isAddingParticipant && setSelectedCandidate(cand)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 12px',
+                            background: isSelected ? 'rgba(56, 189, 248, 0.12)' : 'rgba(30, 41, 59, 0.5)',
+                            border: `1px solid ${isSelected ? '#38bdf8' : 'rgba(255, 255, 255, 0.06)'}`,
+                            borderRadius: '6px',
+                            cursor: isAddingParticipant ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <input
+                              type="radio"
+                              name="selectedCandidate"
+                              checked={isSelected}
+                              onChange={() => setSelectedCandidate(cand)}
+                              style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
+                            />
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: '600', color: '#f8fafc', fontSize: '0.85rem' }}>
+                                  @{cand.username}
+                                </span>
+                                {cand.full_name && (
+                                  <span style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>
+                                    ({cand.full_name})
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                {cand.email} {cand.institution ? `• ${cand.institution}` : ''}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ textAlign: 'right' }}>
+                            <span
+                              style={{
+                                fontWeight: '700',
+                                color: candRatingColor,
+                                fontSize: '0.82rem',
+                              }}
+                            >
+                              {cand.current_rating || cand.currentRating || 1200}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '8px',
+                padding: '12px 20px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                background: 'rgba(15, 23, 42, 0.8)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                disabled={isAddingParticipant}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '6px',
+                  color: '#cbd5e1',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: isAddingParticipant ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAddParticipant}
+                disabled={!selectedCandidate || isAddingParticipant || isLifecycleLocked}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 16px',
+                  background: !selectedCandidate || isAddingParticipant || isLifecycleLocked ? 'rgba(37, 99, 235, 0.4)' : '#2563eb',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: !selectedCandidate || isAddingParticipant || isLifecycleLocked ? 'not-allowed' : 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                {isAddingParticipant ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Adding...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserPlus size={13} />
+                    <span>Add to Contest</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Participant Confirmation Modal (Phase 7.5.7.4) */}
+      {participantToRemove && (
+        <div
+          className="contest-remove-participant-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: '20px',
+          }}
+          onClick={() => {
+            if (!isRemovingParticipant) setParticipantToRemove(null);
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '460px',
+              padding: '20px',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                paddingBottom: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <UserMinus size={18} color="#f87171" />
+                <div style={{ fontWeight: '700', fontSize: '1rem', color: '#f8fafc' }}>
+                  Remove Participant
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setParticipantToRemove(null)}
+                disabled={isRemovingParticipant}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: isRemovingParticipant ? 'not-allowed' : 'pointer',
+                  padding: '4px',
+                }}
+                title="Close dialog"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Prompt details */}
+            <div style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.5' }}>
+              Are you sure you want to remove participant{' '}
+              <strong style={{ color: '#f8fafc' }}>@{participantToRemove.username}</strong>
+              {participantToRemove.fullName ? ` (${participantToRemove.fullName})` : ''} from Contest #{contestId}?
+            </div>
+
+            {/* Integrity Warning */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                background: 'rgba(234, 179, 8, 0.08)',
+                border: '1px solid rgba(234, 179, 8, 0.25)',
+                color: '#facc15',
+                fontSize: '0.78rem',
+                lineHeight: '1.4',
+              }}
+            >
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <strong>Submission Integrity Protection:</strong> If this student has submitted solutions in this contest, the platform will block removal to preserve competition history and audit records.
+              </div>
+            </div>
+
+            {/* Error Message banner if removal failed */}
+            {removeModalError && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: '#f87171',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                <span>{removeModalError}</span>
+              </div>
+            )}
+
+            {/* Footer Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setParticipantToRemove(null)}
+                disabled={isRemovingParticipant}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '6px',
+                  color: '#cbd5e1',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: isRemovingParticipant ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRemoveParticipant}
+                disabled={isRemovingParticipant || isLifecycleLocked}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 16px',
+                  background: isRemovingParticipant || isLifecycleLocked ? 'rgba(239, 68, 68, 0.4)' : '#ef4444',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: isRemovingParticipant || isLifecycleLocked ? 'not-allowed' : 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                {isRemovingParticipant ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserMinus size={13} />
+                    <span>Confirm Removal</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
