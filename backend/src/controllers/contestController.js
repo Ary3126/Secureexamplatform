@@ -2425,6 +2425,99 @@ const getContestResults = async (req, res, next) => {
 };
 
 /**
+ * Get dedicated admin contest leaderboard
+ * @route GET /api/contests/:id/admin-leaderboard
+ */
+const getContestAdminLeaderboard = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    // Role check: Only professors, contest_admin, and super_admin are authorized
+    if (!req.user || !['professor', 'contest_admin', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not have permission to access the admin leaderboard.',
+      });
+    }
+
+    // Contest existence and ownership check (BOLA / IDOR protection)
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not manage this contest.',
+      });
+    }
+
+    const { page, limit, search, freezeOverride, sortBy, sortOrder, filterStatus } = req.query;
+
+    // Validate whitelisted sortBy
+    const validSortFields = ['rank', 'score', 'solved', 'penalty', 'participant', 'submissions'];
+    if (sortBy && !validSortFields.includes(sortBy)) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: `Invalid sortBy field. Allowed fields: ${validSortFields.join(', ')}`,
+      });
+    }
+
+    // Validate whitelisted sortOrder
+    if (sortOrder && !['ASC', 'DESC', 'asc', 'desc'].includes(sortOrder)) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid sortOrder. Allowed: ASC, DESC',
+      });
+    }
+
+    // Validate whitelisted filterStatus
+    const validFilterStatuses = ['all', 'solved_any', 'has_submissions', 'no_submissions'];
+    if (filterStatus && !validFilterStatuses.includes(filterStatus)) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: `Invalid filterStatus. Allowed: ${validFilterStatuses.join(', ')}`,
+      });
+    }
+
+    const StandingsService = require('../services/standingsService');
+    const result = await StandingsService.computeContestStandings({
+      contestId: contestIdNum,
+      requestingUser: req.user,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 50,
+      search: search || '',
+      freezeOverride: freezeOverride === 'true' || freezeOverride === true,
+      sortBy: sortBy || 'rank',
+      sortOrder: (sortOrder || 'ASC').toUpperCase(),
+      filterStatus: filterStatus || 'all',
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Reorder problems in a contest
  * @route PUT /api/contests/:contestId/problems/order
  * @route PUT /api/contests/:id/problems/order
@@ -2622,4 +2715,5 @@ module.exports = {
   finalizeContestRatings,
   getContestLeaderboard,
   getContestResults,
+  getContestAdminLeaderboard,
 };

@@ -28,6 +28,9 @@ class StandingsService {
     limit = 50,
     search = '',
     freezeOverride = false,
+    sortBy = 'rank',
+    sortOrder = 'ASC',
+    filterStatus = 'all',
     clientOrDb = null,
   }) {
     const executor = clientOrDb || db;
@@ -222,6 +225,11 @@ class StandingsService {
         };
       });
 
+      let totalSubmissions = 0;
+      for (const subList of userProbs.values()) {
+        totalSubmissions += subList.length;
+      }
+
       return {
         userId: p.userId,
         username: p.username,
@@ -236,6 +244,7 @@ class StandingsService {
         totalPenaltyMinutes,
         totalTimeMs: totalExecTimeMs,
         solvedProblemsCount: solvedCount,
+        totalSubmissions,
         lastAcceptedAt: lastAcceptedTimestamp ? lastAcceptedTimestamp.toISOString() : null,
         problems: problemDetails,
       };
@@ -376,7 +385,7 @@ class StandingsService {
       }
     }
 
-    // 10. Filter Search & Server-Side Pagination
+    // 10. Filter Search, Status & Server-Side Pagination
     let filteredParticipants = evaluatedParticipants;
     if (search && search.trim()) {
       const q = search.trim().toLowerCase();
@@ -385,6 +394,49 @@ class StandingsService {
           p.username.toLowerCase().includes(q) ||
           (p.fullName && p.fullName.toLowerCase().includes(q))
       );
+    }
+
+    if (filterStatus && filterStatus !== 'all') {
+      if (filterStatus === 'solved_any') {
+        filteredParticipants = filteredParticipants.filter((p) => p.solvedProblemsCount > 0);
+      } else if (filterStatus === 'has_submissions') {
+        filteredParticipants = filteredParticipants.filter((p) => p.totalSubmissions > 0);
+      } else if (filterStatus === 'no_submissions') {
+        filteredParticipants = filteredParticipants.filter((p) => p.totalSubmissions === 0);
+      }
+    }
+
+    // Whitelisted sort fields: rank, score, solved, penalty, participant, submissions
+    const validSortFields = ['rank', 'score', 'solved', 'penalty', 'participant', 'submissions'];
+    const activeSortBy = validSortFields.includes(sortBy) ? sortBy : 'rank';
+    const isDesc = String(sortOrder || '').toUpperCase() === 'DESC';
+
+    if (activeSortBy !== 'rank' || isDesc) {
+      filteredParticipants = [...filteredParticipants].sort((a, b) => {
+        let cmp = 0;
+        switch (activeSortBy) {
+          case 'score':
+            cmp = a.totalScore - b.totalScore;
+            break;
+          case 'solved':
+            cmp = a.solvedProblemsCount - b.solvedProblemsCount;
+            break;
+          case 'penalty':
+            cmp = a.totalPenaltyMinutes - b.totalPenaltyMinutes;
+            break;
+          case 'participant':
+            cmp = (a.fullName || a.username).localeCompare(b.fullName || b.username);
+            break;
+          case 'submissions':
+            cmp = a.totalSubmissions - b.totalSubmissions;
+            break;
+          case 'rank':
+          default:
+            cmp = a.rank - b.rank;
+            break;
+        }
+        return isDesc ? -cmp : cmp;
+      });
     }
 
     const totalParticipants = filteredParticipants.length;
@@ -434,6 +486,9 @@ class StandingsService {
         limit: limitNum,
         hasNext: pageNum < totalPages,
         hasPrev: pageNum > 1,
+        sortBy: activeSortBy,
+        sortOrder: isDesc ? 'DESC' : 'ASC',
+        filterStatus: filterStatus || 'all',
       },
       standings: paginatedStandings,
       podium,

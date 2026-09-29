@@ -29,6 +29,7 @@ import AdminContestCreateModal from './AdminContestCreateModal';
 import AdminContestEditModal from './AdminContestEditModal';
 import AdminContestProblemList from './AdminContestProblemList';
 import AdminContestParticipantList from './AdminContestParticipantList';
+import AdminContestLeaderboard from './AdminContestLeaderboard';
 import './adminContestManagement.css';
 
 /**
@@ -653,17 +654,18 @@ export default function AdminContestManagement({
                             </button>
                           )}
 
-                          {/* Leaderboard Link Button */}
-                          <a
-                            href={`/contests/${c.id}/leaderboard`}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          {/* Leaderboard Action Button (Opens Leaderboard Drawer) */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectDrawerTab('leaderboard');
+                              if (onInspectContest) onInspectContest(c.id);
+                            }}
                             className="btn-table-action btn-action-leaderboard"
-                            style={{ textDecoration: 'none' }}
-                            title="Open contest standings leaderboard"
+                            title="Inspect contest standings & leaderboard"
                           >
                             <BarChart3 size={13} />
-                          </a>
+                          </button>
 
                           {/* Publish Action (for Drafts) */}
                           {c.status === 'draft' && onPublishContest && (
@@ -1051,6 +1053,27 @@ export default function AdminContestManagement({
                     >
                       <Users size={14} /> Enrolled Participants ({inspectedContest.participantCount || 0})
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInspectDrawerTab('leaderboard')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        background: inspectDrawerTab === 'leaderboard' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                        border: inspectDrawerTab === 'leaderboard' ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid transparent',
+                        color: inspectDrawerTab === 'leaderboard' ? '#38bdf8' : '#94a3b8',
+                        borderRadius: '6px',
+                        fontWeight: '600',
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <BarChart3 size={14} /> Standings & Leaderboard
+                    </button>
                   </div>
 
                   {/* Render Tab Content */}
@@ -1067,13 +1090,20 @@ export default function AdminContestManagement({
                       onProblemRemoved={() => onInspectContest && onInspectContest(inspectedContest.id)}
                       onProblemReordered={() => onInspectContest && onInspectContest(inspectedContest.id)}
                     />
-                  ) : (
+                  ) : inspectDrawerTab === 'participants' ? (
                     <AdminContestParticipantList
                       contestId={inspectedContest.id}
                       contest={inspectedContest}
                       currentUser={currentUser}
                       token={currentUser?.token}
                       onRefreshParent={() => onInspectContest && onInspectContest(inspectedContest.id)}
+                    />
+                  ) : (
+                    <AdminContestLeaderboard
+                      contestId={inspectedContest.id}
+                      contest={inspectedContest}
+                      currentUser={currentUser}
+                      token={currentUser?.token}
                     />
                   )}
                 </>

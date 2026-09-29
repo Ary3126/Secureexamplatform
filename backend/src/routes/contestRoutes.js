@@ -256,6 +256,17 @@ router.get(
 );
 
 /**
+ * @route GET /api/contests/:id/admin-leaderboard
+ * Dedicated Admin Leaderboard with freeze override, participant inspection, sorting, and manager RBAC
+ */
+router.get(
+  '/:id/admin-leaderboard',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  mediumProtectionRateLimiter,
+  contestController.getContestAdminLeaderboard
+);
+
+/**
  * @route GET /api/contests/:id/search-students
  * Search available students eligible to be added to this contest
  */
