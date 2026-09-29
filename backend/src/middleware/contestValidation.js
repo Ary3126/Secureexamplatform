@@ -683,6 +683,92 @@ const validateReorderContestProblems = (req, res, next) => {
   next();
 };
 
+/**
+ * Validate bulk participant addition to contest
+ */
+const validateBulkAddParticipants = (req, res, next) => {
+  const rawContestId = req.params.contestId || req.params.id;
+  const errors = [];
+
+  const numContestId = Number(rawContestId);
+  if (!rawContestId || !Number.isInteger(numContestId) || numContestId <= 0) {
+    errors.push('A valid positive integer contest ID is required.');
+  }
+
+  const body = req.body || {};
+  let candidateList = body.userIds || body.participants || body.studentIds || (Array.isArray(body) ? body : null);
+
+  if (!candidateList || !Array.isArray(candidateList) || candidateList.length === 0) {
+    errors.push('A non-empty array of user IDs or participant objects is required.');
+  } else if (candidateList.length > 100) {
+    errors.push('Participants array exceeds maximum allowed limit of 100 items.');
+  } else {
+    for (let i = 0; i < candidateList.length; i++) {
+      const item = candidateList[i];
+      const rawId = typeof item === 'object' && item !== null ? (item.userId || item.id || item.studentId) : item;
+      const idNum = Number(rawId);
+      if (!Number.isInteger(idNum) || idNum <= 0) {
+        errors.push(`Invalid participant ID at index ${i}: ${rawId}. ID must be a positive integer.`);
+        break;
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed for bulk adding participants to contest',
+      errors,
+    });
+  }
+
+  next();
+};
+
+/**
+ * Validate bulk participant removal from contest
+ */
+const validateBulkRemoveParticipants = (req, res, next) => {
+  const rawContestId = req.params.contestId || req.params.id;
+  const errors = [];
+
+  const numContestId = Number(rawContestId);
+  if (!rawContestId || !Number.isInteger(numContestId) || numContestId <= 0) {
+    errors.push('A valid positive integer contest ID is required.');
+  }
+
+  const body = req.body || {};
+  let candidateList = body.userIds || body.participants || body.participantIds || (Array.isArray(body) ? body : null);
+
+  if (!candidateList || !Array.isArray(candidateList) || candidateList.length === 0) {
+    errors.push('A non-empty array of participant user IDs is required.');
+  } else if (candidateList.length > 100) {
+    errors.push('Participant IDs array exceeds maximum allowed limit of 100 items.');
+  } else {
+    for (let i = 0; i < candidateList.length; i++) {
+      const item = candidateList[i];
+      const rawId = typeof item === 'object' && item !== null ? (item.userId || item.id) : item;
+      const idNum = Number(rawId);
+      if (!Number.isInteger(idNum) || idNum <= 0) {
+        errors.push(`Invalid participant ID at index ${i}: ${rawId}. ID must be a positive integer.`);
+        break;
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({
+      status: 'error',
+      statusCode: 400,
+      message: 'Validation failed for bulk removing participants from contest',
+      errors,
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   validateCreateContest,
   validateUpdateContest,
@@ -692,4 +778,6 @@ module.exports = {
   validateBulkAddContestProblems,
   validateRemoveProblemFromContest,
   validateReorderContestProblems,
+  validateBulkAddParticipants,
+  validateBulkRemoveParticipants,
 };

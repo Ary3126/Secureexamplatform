@@ -110,12 +110,19 @@ export default function AdminContestParticipantList({
   const [candidateStudents, setCandidateStudents] = useState([]);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
   const [isAddingParticipant, setIsAddingParticipant] = useState(false);
   const [addModalError, setAddModalError] = useState(null);
 
   const [participantToRemove, setParticipantToRemove] = useState(null);
   const [isRemovingParticipant, setIsRemovingParticipant] = useState(false);
   const [removeModalError, setRemoveModalError] = useState(null);
+
+  // Phase 7.5.7.5: Bulk Participant Operations State
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState([]);
+  const [isBulkRemoveModalOpen, setIsBulkRemoveModalOpen] = useState(false);
+  const [isBulkRemoving, setIsBulkRemoving] = useState(false);
+  const [bulkRemoveModalError, setBulkRemoveModalError] = useState(null);
 
   const [actionNotification, setActionNotification] = useState(null);
 
@@ -279,6 +286,7 @@ export default function AdminContestParticipantList({
     setIsAddModalOpen(true);
     setCandidateSearchQuery('');
     setSelectedCandidate(null);
+    setSelectedCandidateIds([]);
     setAddModalError(null);
     fetchCandidateStudents('');
   };
@@ -294,39 +302,66 @@ export default function AdminContestParticipantList({
     }, 300);
   };
 
+  const handleToggleCandidateSelect = (candId) => {
+    setSelectedCandidateIds((prev) =>
+      prev.includes(candId) ? prev.filter((id) => id !== candId) : [...prev, candId]
+    );
+  };
+
+  const handleToggleSelectAllCandidates = () => {
+    const visibleIds = candidateStudents.map((c) => c.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedCandidateIds.includes(id));
+    if (allSelected) {
+      setSelectedCandidateIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      setSelectedCandidateIds((prev) => [...new Set([...prev, ...visibleIds])]);
+    }
+  };
+
   const handleAddParticipant = async () => {
-    if (!selectedCandidate || !contestId || isAddingParticipant) return;
+    const idsToAdd = selectedCandidateIds.length > 0
+      ? selectedCandidateIds
+      : selectedCandidate ? [selectedCandidate.id] : [];
+
+    if (idsToAdd.length === 0 || !contestId || isAddingParticipant) return;
     setIsAddingParticipant(true);
     setAddModalError(null);
 
     try {
       const authToken = token || currentUser?.token;
-      const res = await fetch(`/api/contests/${contestId}/participants`, {
+      // Bulk add endpoint handles both single and batch securely
+      const res = await fetch(`/api/contests/${contestId}/participants/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ userId: selectedCandidate.id }),
+        body: JSON.stringify({ userIds: idsToAdd }),
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.message || `Failed to add participant (HTTP ${res.status})`);
+        throw new Error(data.message || `Failed to add participants (HTTP ${res.status})`);
       }
 
+      const summary = data.summary || {};
+      const addedCount = summary.addedCount ?? (data.added?.length || 0);
+      const alreadyEnrolledCount = summary.alreadyEnrolledCount ?? (data.alreadyEnrolled?.length || 0);
+      const invalidCount = summary.invalidCount ?? (data.invalid?.length || 0);
+
       setActionNotification({
-        type: 'success',
-        message: `Successfully enrolled @${data.participant?.username || selectedCandidate.username} in Contest #${contestId}!`,
+        type: addedCount > 0 ? 'success' : 'error',
+        message: `Bulk enrollment: ${addedCount} added${alreadyEnrolledCount > 0 ? `, ${alreadyEnrolledCount} already enrolled` : ''}${invalidCount > 0 ? `, ${invalidCount} invalid` : ''}!`,
       });
 
       setIsAddModalOpen(false);
       setSelectedCandidate(null);
+      setSelectedCandidateIds([]);
       setCandidateSearchQuery('');
       fetchParticipants();
       if (onRefreshParent) onRefreshParent();
     } catch (err) {
-      setAddModalError(err.message || 'Failed to add participant');
+      setAddModalError(err.message || 'Failed to add participants');
     } finally {
       setIsAddingParticipant(false);
     }
@@ -357,6 +392,8 @@ export default function AdminContestParticipantList({
         message: `Participant @${participantToRemove.username} was removed from the contest.`,
       });
 
+      // Clear from selected IDs if present
+      setSelectedParticipantIds((prev) => prev.filter((id) => id !== participantToRemove.userId));
       setParticipantToRemove(null);
       fetchParticipants();
       if (onRefreshParent) onRefreshParent();
@@ -364,6 +401,74 @@ export default function AdminContestParticipantList({
       setRemoveModalError(err.message || 'Failed to remove participant');
     } finally {
       setIsRemovingParticipant(false);
+    }
+  };
+
+  // Phase 7.5.7.5: Bulk Participant Roster Multi-Select Handlers
+  const handleToggleSelectAllVisible = () => {
+    const visibleIds = participants.map((p) => p.userId);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedParticipantIds.includes(id));
+    if (allSelected) {
+      setSelectedParticipantIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      setSelectedParticipantIds((prev) => [...new Set([...prev, ...visibleIds])]);
+    }
+  };
+
+  const handleToggleSelectParticipant = (userId) => {
+    setSelectedParticipantIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleClearSelection = () => {
+    setSelectedParticipantIds([]);
+  };
+
+  const handleOpenBulkRemoveModal = () => {
+    if (selectedParticipantIds.length === 0 || isLifecycleLocked || !canManage) return;
+    setBulkRemoveModalError(null);
+    setIsBulkRemoveModalOpen(true);
+  };
+
+  const handleBulkRemoveParticipants = async () => {
+    if (selectedParticipantIds.length === 0 || !contestId || isBulkRemoving) return;
+    setIsBulkRemoving(true);
+    setBulkRemoveModalError(null);
+
+    try {
+      const authToken = token || currentUser?.token;
+      const res = await fetch(`/api/contests/${contestId}/participants/bulk`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ userIds: selectedParticipantIds }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || `Failed to remove participants (HTTP ${res.status})`);
+      }
+
+      const summary = data.summary || {};
+      const removedCount = summary.removedCount ?? (data.removed?.length || 0);
+      const blockedCount = summary.blockedCount ?? (data.blockedWithSubmissions?.length || 0);
+
+      setActionNotification({
+        type: blockedCount > 0 && removedCount === 0 ? 'error' : 'success',
+        message: `Bulk remove completed: ${removedCount} removed${blockedCount > 0 ? `, ${blockedCount} retained (had contest submissions)` : ''}.`,
+      });
+
+      setIsBulkRemoveModalOpen(false);
+      setSelectedParticipantIds([]);
+      fetchParticipants();
+      if (onRefreshParent) onRefreshParent();
+    } catch (err) {
+      setBulkRemoveModalError(err.message || 'Failed to remove participants');
+    } finally {
+      setIsBulkRemoving(false);
     }
   };
 
@@ -682,6 +787,71 @@ export default function AdminContestParticipantList({
         </div>
       ) : (
         <>
+          {/* Phase 7.5.7.5: Bulk Selection Action Toolbar */}
+          {selectedParticipantIds.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 16px',
+                background: 'rgba(56, 189, 248, 0.08)',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                borderRadius: '8px',
+                marginBottom: '12px',
+                fontSize: '0.82rem',
+                color: '#38bdf8',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Users size={16} />
+                <span>
+                  <strong>{selectedParticipantIds.length}</strong> {selectedParticipantIds.length === 1 ? 'participant' : 'participants'} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  style={{
+                    marginLeft: '8px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    fontSize: '0.78rem',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Clear selection
+                </button>
+              </div>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={handleOpenBulkRemoveModal}
+                  disabled={isLifecycleLocked}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    background: isLifecycleLocked ? 'rgba(239, 68, 68, 0.4)' : '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    cursor: isLifecycleLocked ? 'not-allowed' : 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                  title={isLifecycleLocked ? 'Cannot remove participants from ended/archived contest' : 'Remove selected participants'}
+                >
+                  <UserMinus size={14} />
+                  <span>Remove Selected ({selectedParticipantIds.length})</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Participant Table */}
           <div
             style={{
@@ -710,6 +880,17 @@ export default function AdminContestParticipantList({
                     letterSpacing: '0.04em',
                   }}
                 >
+                  {/* Select All Checkbox */}
+                  <th style={{ width: '40px', padding: '10px 14px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible participants"
+                      checked={participants.length > 0 && participants.every((p) => selectedParticipantIds.includes(p.userId))}
+                      onChange={handleToggleSelectAllVisible}
+                      disabled={participants.length === 0}
+                      style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
+                    />
+                  </th>
                   <th
                     style={{ padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => handleSortToggle('username')}
@@ -750,16 +931,33 @@ export default function AdminContestParticipantList({
               <tbody>
                 {participants.map((p, idx) => {
                   const ratingColor = getRatingColor(p.currentRating);
+                  const isRowSelected = selectedParticipantIds.includes(p.userId);
                   return (
                     <tr
                       key={p.userId || idx}
                       style={{
                         borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                        background: isRowSelected ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
                         transition: 'background 0.15s ease',
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(30, 41, 59, 0.4)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      onMouseEnter={(e) => {
+                        if (!isRowSelected) e.currentTarget.style.background = 'rgba(30, 41, 59, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isRowSelected) e.currentTarget.style.background = 'transparent';
+                      }}
                     >
+                      {/* Row Selection Checkbox */}
+                      <td style={{ width: '40px', padding: '10px 14px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select participant @${p.username}`}
+                          checked={isRowSelected}
+                          onChange={() => handleToggleSelectParticipant(p.userId)}
+                          style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
+                        />
+                      </td>
+
                       {/* Participant / Username Column */}
                       <td style={{ padding: '10px 14px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1395,8 +1593,36 @@ export default function AdminContestParticipantList({
 
               {/* Candidate Selection List */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Available Students ({candidateStudents.length})
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Available Students ({candidateStudents.length})
+                  </div>
+                  {candidateStudents.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {selectedCandidateIds.length > 0 && (
+                        <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '600' }}>
+                          {selectedCandidateIds.length} selected
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleToggleSelectAllCandidates}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#38bdf8',
+                          fontSize: '0.75rem',
+                          cursor: 'pointer',
+                          padding: '0',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        {candidateStudents.every((c) => selectedCandidateIds.includes(c.id))
+                          ? 'Deselect All'
+                          : 'Select All Visible'}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {loadingCandidates ? (
@@ -1431,12 +1657,17 @@ export default function AdminContestParticipantList({
                     }}
                   >
                     {candidateStudents.map((cand) => {
-                      const isSelected = selectedCandidate?.id === cand.id;
+                      const isSelected = selectedCandidateIds.includes(cand.id) || selectedCandidate?.id === cand.id;
                       const candRatingColor = getRatingColor(cand.current_rating || cand.currentRating);
                       return (
                         <div
                           key={cand.id}
-                          onClick={() => !isAddingParticipant && setSelectedCandidate(cand)}
+                          onClick={() => {
+                            if (!isAddingParticipant) {
+                              handleToggleCandidateSelect(cand.id);
+                              setSelectedCandidate(cand);
+                            }
+                          }}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -1451,10 +1682,13 @@ export default function AdminContestParticipantList({
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <input
-                              type="radio"
+                              type="checkbox"
                               name="selectedCandidate"
                               checked={isSelected}
-                              onChange={() => setSelectedCandidate(cand)}
+                              onChange={() => {
+                                handleToggleCandidateSelect(cand.id);
+                                setSelectedCandidate(cand);
+                              }}
                               style={{ cursor: 'pointer', accentColor: '#38bdf8' }}
                             />
                             <div>
@@ -1524,19 +1758,19 @@ export default function AdminContestParticipantList({
               <button
                 type="button"
                 onClick={handleAddParticipant}
-                disabled={!selectedCandidate || isAddingParticipant || isLifecycleLocked}
+                disabled={(selectedCandidateIds.length === 0 && !selectedCandidate) || isAddingParticipant || isLifecycleLocked}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
                   padding: '6px 16px',
-                  background: !selectedCandidate || isAddingParticipant || isLifecycleLocked ? 'rgba(37, 99, 235, 0.4)' : '#2563eb',
+                  background: (selectedCandidateIds.length === 0 && !selectedCandidate) || isAddingParticipant || isLifecycleLocked ? 'rgba(37, 99, 235, 0.4)' : '#2563eb',
                   border: 'none',
                   borderRadius: '6px',
                   color: '#ffffff',
                   fontSize: '0.82rem',
                   fontWeight: '600',
-                  cursor: !selectedCandidate || isAddingParticipant || isLifecycleLocked ? 'not-allowed' : 'pointer',
+                  cursor: (selectedCandidateIds.length === 0 && !selectedCandidate) || isAddingParticipant || isLifecycleLocked ? 'not-allowed' : 'pointer',
                   transition: 'background 0.15s ease',
                 }}
               >
@@ -1548,7 +1782,185 @@ export default function AdminContestParticipantList({
                 ) : (
                   <>
                     <UserPlus size={13} />
-                    <span>Add to Contest</span>
+                    <span>
+                      {selectedCandidateIds.length > 1
+                        ? `Add ${selectedCandidateIds.length} Students`
+                        : 'Add to Contest'}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Remove Participants Confirmation Modal (Phase 7.5.7.5) */}
+      {isBulkRemoveModalOpen && (
+        <div
+          className="contest-bulk-remove-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: '20px',
+          }}
+          onClick={() => {
+            if (!isBulkRemoving) setIsBulkRemoveModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '480px',
+              padding: '20px',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                paddingBottom: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <UserMinus size={18} color="#f87171" />
+                <div style={{ fontWeight: '700', fontSize: '1rem', color: '#f8fafc' }}>
+                  Bulk Remove Participants
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkRemoveModalOpen(false)}
+                disabled={isBulkRemoving}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: isBulkRemoving ? 'not-allowed' : 'pointer',
+                  padding: '4px',
+                }}
+                title="Close dialog"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Prompt details */}
+            <div style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: '1.5' }}>
+              Are you sure you want to remove{' '}
+              <strong style={{ color: '#f8fafc' }}>
+                {selectedParticipantIds.length} {selectedParticipantIds.length === 1 ? 'participant' : 'participants'}
+              </strong>{' '}
+              from Contest #{contestId}?
+            </div>
+
+            {/* Integrity Warning */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                background: 'rgba(234, 179, 8, 0.08)',
+                border: '1px solid rgba(234, 179, 8, 0.25)',
+                color: '#facc15',
+                fontSize: '0.78rem',
+                lineHeight: '1.4',
+              }}
+            >
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <strong>Submission Protection:</strong> Any selected participants with existing submissions in this contest will not be deleted, safeguarding competition integrity and leaderboard records.
+              </div>
+            </div>
+
+            {/* Error Message banner if removal failed */}
+            {bulkRemoveModalError && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: '#f87171',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                <span>{bulkRemoveModalError}</span>
+              </div>
+            )}
+
+            {/* Footer Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setIsBulkRemoveModalOpen(false)}
+                disabled={isBulkRemoving}
+                style={{
+                  padding: '6px 14px',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '6px',
+                  color: '#cbd5e1',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: isBulkRemoving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkRemoveParticipants}
+                disabled={isBulkRemoving || isLifecycleLocked}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 16px',
+                  background: isBulkRemoving || isLifecycleLocked ? 'rgba(239, 68, 68, 0.4)' : '#ef4444',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: isBulkRemoving || isLifecycleLocked ? 'not-allowed' : 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                {isBulkRemoving ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserMinus size={13} />
+                    <span>Confirm Bulk Removal</span>
                   </>
                 )}
               </button>

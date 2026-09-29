@@ -1996,6 +1996,247 @@ const searchContestCandidateStudents = async (req, res, next) => {
 };
 
 /**
+ * Bulk add participants to a contest (Manager only)
+ * @route POST /api/contests/:id/participants/bulk
+ */
+const bulkAddContestParticipants = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestId = Number(rawContestId);
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    if (!canManageResource(req.user, contest)) {
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'BULK_ADD_PARTICIPANTS' },
+          req,
+        });
+      }
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to manage participants for this contest',
+      });
+    }
+
+    const runtimeState = getContestRuntimeState(contest);
+    if (runtimeState === 'archived' || contest.status === 'archived') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot add participants: Contest is archived',
+      });
+    }
+
+    if (runtimeState === 'ended') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot add participants: Contest has already ended',
+      });
+    }
+
+    const rawList = req.body?.userIds || req.body?.participants || req.body?.studentIds || (Array.isArray(req.body) ? req.body : []);
+
+    if (!Array.isArray(rawList) || rawList.length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'A non-empty array of user IDs or participant objects is required.',
+      });
+    }
+
+    if (rawList.length > 100) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Participants array exceeds maximum allowed limit of 100 items.',
+      });
+    }
+
+    const result = await ContestModel.bulkAddParticipantsWithSafety(contestId, rawList, req.user, req);
+
+    if (result.locked) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: result.message,
+      });
+    }
+
+    if (result.notFound) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    if (result.validationError) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: result.message || 'Validation failed for participant user IDs',
+      });
+    }
+
+    const statusCode = result.summary.addedCount > 0 ? 201 : 200;
+    return res.status(statusCode).json({
+      status: 'success',
+      message: `Bulk add operation completed: ${result.summary.addedCount} added, ${result.summary.alreadyEnrolledCount} already enrolled, ${result.summary.invalidCount} invalid.`,
+      contestId,
+      summary: result.summary,
+      added: result.added,
+      alreadyEnrolled: result.alreadyEnrolled,
+      invalid: result.invalid,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Bulk remove participants from a contest (Manager only)
+ * @route DELETE /api/contests/:id/participants/bulk
+ * @route DELETE /api/contests/:id/participants
+ * @route POST /api/contests/:id/participants/bulk-remove
+ */
+const bulkRemoveContestParticipants = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestId = Number(rawContestId);
+    if (!Number.isInteger(contestId) || contestId <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestId);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    if (!canManageResource(req.user, contest)) {
+      if (AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor: req.user,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'BULK_REMOVE_PARTICIPANTS' },
+          req,
+        });
+      }
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: You do not have permission to manage participants for this contest',
+      });
+    }
+
+    const runtimeState = getContestRuntimeState(contest);
+    if (runtimeState === 'archived' || contest.status === 'archived') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot remove participants: Contest is archived',
+      });
+    }
+
+    if (runtimeState === 'ended') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot remove participants: Contest has already ended',
+      });
+    }
+
+    const rawList = req.body?.userIds || req.body?.participants || req.body?.participantIds || (Array.isArray(req.body) ? req.body : []);
+
+    if (!Array.isArray(rawList) || rawList.length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'A non-empty array of participant user IDs is required.',
+      });
+    }
+
+    if (rawList.length > 100) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Participant IDs array exceeds maximum allowed limit of 100 items.',
+      });
+    }
+
+    const result = await ContestModel.bulkRemoveParticipantsWithSafety(contestId, rawList, req.user, req);
+
+    if (result.locked) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: result.message,
+      });
+    }
+
+    if (result.notFound) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
+      });
+    }
+
+    if (result.validationError) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: result.message || 'Validation failed for participant user IDs',
+      });
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      message: `Bulk remove operation completed: ${result.summary.removedCount} removed, ${result.summary.blockedCount} blocked with submissions, ${result.summary.notEnrolledCount} not enrolled.`,
+      contestId,
+      summary: result.summary,
+      removed: result.removed,
+      blockedWithSubmissions: result.blockedWithSubmissions,
+      notEnrolled: result.notEnrolled,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Finalize ratings for a contest (Professors/Contest Admins/Super Admins)
  * @route POST /api/contests/:id/finalize-ratings
  */
@@ -2248,6 +2489,8 @@ module.exports = {
   getContestParticipants,
   addContestParticipant,
   removeContestParticipant,
+  bulkAddContestParticipants,
+  bulkRemoveContestParticipants,
   searchContestCandidateStudents,
   finalizeContestRatings,
   getContestLeaderboard,

@@ -10,6 +10,8 @@ const {
   validateBulkAddContestProblems,
   validateRemoveProblemFromContest,
   validateReorderContestProblems,
+  validateBulkAddParticipants,
+  validateBulkRemoveParticipants,
 } = require('../middleware/contestValidation');
 const {
   contestActionRateLimiter,
@@ -261,6 +263,46 @@ router.post(
   authorizeRoles('professor', 'contest_admin', 'super_admin'),
   contestActionRateLimiter,
   contestController.addContestParticipant
+);
+
+/**
+ * @route POST /api/contests/:id/participants/bulk
+ * Bulk add participants to a contest (Manager only)
+ */
+router.post(
+  '/:id/participants/bulk',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateBulkAddParticipants,
+  contestController.bulkAddContestParticipants
+);
+
+/**
+ * @route DELETE /api/contests/:id/participants/bulk
+ * @route DELETE /api/contests/:id/participants
+ * @route POST /api/contests/:id/participants/bulk-remove
+ * Bulk remove participants from a contest (Manager only)
+ */
+router.delete(
+  '/:id/participants/bulk',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateBulkRemoveParticipants,
+  contestController.bulkRemoveContestParticipants
+);
+router.delete(
+  '/:id/participants',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateBulkRemoveParticipants,
+  contestController.bulkRemoveContestParticipants
+);
+router.post(
+  '/:id/participants/bulk-remove',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  validateBulkRemoveParticipants,
+  contestController.bulkRemoveContestParticipants
 );
 
 /**

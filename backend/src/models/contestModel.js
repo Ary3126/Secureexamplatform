@@ -1402,6 +1402,329 @@ class ContestModel {
     return res.rowCount > 0;
   }
 
+  /**
+   * Bulk add participants with transaction atomicity, row-level locking, and duplicate resilience
+   * @param {number|string} contestId
+   * @param {Array<number|string>} userIds
+   * @param {Object|null} actor
+   * @param {import('express').Request|null} req
+   */
+  static async bulkAddParticipantsWithSafety(contestId, userIds = [], actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const cRes = await client.query(`
+        SELECT id, start_time AS "startTime", end_time AS "endTime", status
+        FROM contests
+        WHERE id = $1
+        FOR UPDATE;
+      `, [contestId]);
+
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true, resource: 'contest' };
+      }
+
+      const lockedContest = cRes.rows[0];
+      const runtimeState = getContestRuntimeState(lockedContest);
+
+      if (runtimeState === 'archived' || lockedContest.status === 'archived') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState: 'archived',
+          message: 'Cannot add participants: Contest is archived',
+        };
+      }
+
+      if (runtimeState === 'ended') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState: 'ended',
+          message: 'Cannot add participants: Contest has already ended',
+        };
+      }
+
+      // Deduplicate and filter positive integer IDs
+      const uniqueUserIds = [...new Set(
+        userIds
+          .map((id) => (typeof id === 'object' && id !== null ? Number(id.userId || id.id || id.studentId) : Number(id)))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )];
+
+      if (uniqueUserIds.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, validationError: true, message: 'No valid participant user IDs provided' };
+      }
+
+      // Batch query all requested user accounts
+      const usersRes = await client.query(`
+        SELECT id, username, full_name AS "fullName", email, role, is_active AS "isActive"
+        FROM users
+        WHERE id = ANY($1::int[]);
+      `, [uniqueUserIds]);
+
+      const userMap = new Map(usersRes.rows.map((u) => [u.id, u]));
+
+      // Batch query already enrolled participants for this contest
+      const enrolledRes = await client.query(`
+        SELECT user_id AS "userId"
+        FROM contest_participants
+        WHERE contest_id = $1 AND user_id = ANY($2::int[]);
+      `, [contestId, uniqueUserIds]);
+
+      const enrolledSet = new Set(enrolledRes.rows.map((r) => r.userId));
+
+      const added = [];
+      const alreadyEnrolled = [];
+      const invalid = [];
+      const toInsert = [];
+
+      for (const uid of uniqueUserIds) {
+        const u = userMap.get(uid);
+        if (!u) {
+          invalid.push({ userId: uid, reason: 'User not found' });
+        } else if (u.role !== 'student') {
+          invalid.push({ userId: uid, username: u.username, reason: 'User is not a student account' });
+        } else if (!u.isActive) {
+          invalid.push({ userId: uid, username: u.username, reason: 'Student account is inactive' });
+        } else if (enrolledSet.has(uid)) {
+          alreadyEnrolled.push({ userId: uid, username: u.username, reason: 'Already enrolled in this contest' });
+        } else {
+          toInsert.push(u);
+        }
+      }
+
+      // Perform inserts with ON CONFLICT DO NOTHING for concurrency safety
+      for (const u of toInsert) {
+        const insRes = await client.query(`
+          INSERT INTO contest_participants (contest_id, user_id)
+          VALUES ($1, $2)
+          ON CONFLICT (contest_id, user_id) DO NOTHING
+          RETURNING contest_id AS "contestId", user_id AS "userId", joined_at AS "joinedAt";
+        `, [contestId, u.id]);
+
+        if (insRes.rowCount > 0) {
+          added.push({
+            contestId,
+            userId: u.id,
+            username: u.username,
+            fullName: u.fullName,
+            email: u.email,
+            joinedAt: insRes.rows[0].joinedAt,
+          });
+        } else {
+          // Concurrent addition race won by another transaction
+          alreadyEnrolled.push({ userId: u.id, username: u.username, reason: 'Already enrolled in this contest' });
+        }
+      }
+
+      // Log security audit for bulk addition
+      if (added.length > 0 && actor) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'BULK_PARTICIPANTS_ADDED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'success',
+          metadata: {
+            contestId,
+            totalRequested: uniqueUserIds.length,
+            addedCount: added.length,
+            alreadyEnrolledCount: alreadyEnrolled.length,
+            invalidCount: invalid.length,
+            addedStudentIds: added.map((a) => a.userId),
+            runtimeState,
+          },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+
+      return {
+        success: true,
+        summary: {
+          totalRequested: uniqueUserIds.length,
+          addedCount: added.length,
+          alreadyEnrolledCount: alreadyEnrolled.length,
+          invalidCount: invalid.length,
+        },
+        added,
+        alreadyEnrolled,
+        invalid,
+      };
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Bulk remove participants with submission dependency preservation and transactional safety
+   * @param {number|string} contestId
+   * @param {Array<number|string>} userIds
+   * @param {Object|null} actor
+   * @param {import('express').Request|null} req
+   */
+  static async bulkRemoveParticipantsWithSafety(contestId, userIds = [], actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const cRes = await client.query(`
+        SELECT id, start_time AS "startTime", end_time AS "endTime", status
+        FROM contests
+        WHERE id = $1
+        FOR UPDATE;
+      `, [contestId]);
+
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true, resource: 'contest' };
+      }
+
+      const lockedContest = cRes.rows[0];
+      const runtimeState = getContestRuntimeState(lockedContest);
+
+      if (runtimeState === 'archived' || lockedContest.status === 'archived') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState: 'archived',
+          message: 'Cannot remove participants: Contest is archived',
+        };
+      }
+
+      if (runtimeState === 'ended') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState: 'ended',
+          message: 'Cannot remove participants: Contest has already ended',
+        };
+      }
+
+      const uniqueUserIds = [...new Set(
+        userIds
+          .map((id) => (typeof id === 'object' && id !== null ? Number(id.userId || id.id) : Number(id)))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )];
+
+      if (uniqueUserIds.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, validationError: true, message: 'No valid participant user IDs provided' };
+      }
+
+      // Check current participant enrollment
+      const enrolledRes = await client.query(`
+        SELECT cp.user_id AS "userId", u.username
+        FROM contest_participants cp
+        LEFT JOIN users u ON u.id = cp.user_id
+        WHERE cp.contest_id = $1 AND cp.user_id = ANY($2::int[]);
+      `, [contestId, uniqueUserIds]);
+
+      const enrolledMap = new Map(enrolledRes.rows.map((r) => [r.userId, r.username || 'unknown']));
+
+      // Check historical submissions to protect academic integrity and foreign keys
+      const subsRes = await client.query(`
+        SELECT DISTINCT user_id AS "userId"
+        FROM submissions
+        WHERE contest_id = $1 AND user_id = ANY($2::int[]);
+      `, [contestId, uniqueUserIds]);
+
+      const subsSet = new Set(subsRes.rows.map((r) => r.userId));
+
+      const removed = [];
+      const blockedWithSubmissions = [];
+      const notEnrolled = [];
+      const toDelete = [];
+
+      for (const uid of uniqueUserIds) {
+        if (!enrolledMap.has(uid)) {
+          notEnrolled.push({ userId: uid, reason: 'User is not enrolled in this contest' });
+        } else if (subsSet.has(uid)) {
+          blockedWithSubmissions.push({
+            userId: uid,
+            username: enrolledMap.get(uid),
+            reason: 'Cannot remove participant: User has submitted solutions in this contest. Historical submission records must be preserved.',
+          });
+        } else {
+          toDelete.push(uid);
+        }
+      }
+
+      if (toDelete.length > 0) {
+        const delRes = await client.query(`
+          DELETE FROM contest_participants
+          WHERE contest_id = $1 AND user_id = ANY($2::int[])
+          RETURNING user_id AS "userId";
+        `, [contestId, toDelete]);
+
+        for (const row of delRes.rows) {
+          removed.push({
+            userId: row.userId,
+            username: enrolledMap.get(row.userId),
+          });
+        }
+      }
+
+      if (removed.length > 0 && actor) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'BULK_PARTICIPANTS_REMOVED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'success',
+          metadata: {
+            contestId,
+            totalRequested: uniqueUserIds.length,
+            removedCount: removed.length,
+            blockedCount: blockedWithSubmissions.length,
+            notEnrolledCount: notEnrolled.length,
+            removedUserIds: removed.map((r) => r.userId),
+            runtimeState,
+          },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+
+      return {
+        success: true,
+        summary: {
+          totalRequested: uniqueUserIds.length,
+          removedCount: removed.length,
+          blockedCount: blockedWithSubmissions.length,
+          notEnrolledCount: notEnrolled.length,
+        },
+        removed,
+        blockedWithSubmissions,
+        notEnrolled,
+      };
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   static async searchAvailableStudents(contestId, { search = '', limit = 10 } = {}) {
     const parsedLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
     const values = [contestId];
