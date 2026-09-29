@@ -27,6 +27,97 @@ const getContestRuntimeState = (contest) => {
 };
 
 /**
+ * Authoritative Freeze State determination
+ * Derives freeze status from server-authoritative time, contest lifecycle,
+ * freeze configuration, and finalization status.
+ *
+ * @param {Object} contest - Contest object (raw DB row or formatted)
+ * @param {Date} [serverTime=new Date()] - Authoritative server timestamp
+ * @returns {{ isFrozen: boolean, freezeState: 'NOT_FROZEN'|'FROZEN'|'FINAL', freezeTime: Date|null, freezeMinutes: number, serverTime: Date }}
+ */
+const getContestFreezeState = (contest, serverTime = new Date()) => {
+  const authoritativeTime = serverTime instanceof Date && !isNaN(serverTime.getTime()) ? serverTime : new Date();
+
+  if (!contest) {
+    return {
+      isFrozen: false,
+      freezeState: 'NOT_FROZEN',
+      freezeTime: null,
+      freezeMinutes: 60,
+      serverTime: authoritativeTime,
+    };
+  }
+
+  const isFinalized = Boolean(
+    contest.isRatingFinalized !== undefined ? contest.isRatingFinalized : contest.is_rating_finalized
+  );
+  if (isFinalized) {
+    return {
+      isFrozen: false,
+      freezeState: 'FINAL',
+      freezeTime: null,
+      freezeMinutes: 0,
+      serverTime: authoritativeTime,
+    };
+  }
+
+  const freezeEnabled = Boolean(
+    contest.leaderboardFreezeEnabled !== undefined
+      ? contest.leaderboardFreezeEnabled
+      : contest.leaderboard_freeze_enabled
+  );
+
+  const startTime = new Date(contest.startTime || contest.start_time);
+  const endTime = new Date(contest.endTime || contest.end_time);
+
+  const rawMinutes =
+    contest.leaderboardFreezeMinutes !== undefined
+      ? contest.leaderboardFreezeMinutes
+      : contest.leaderboard_freeze_minutes;
+  const freezeMinutes =
+    rawMinutes !== undefined && rawMinutes !== null
+      ? Math.max(0, parseInt(rawMinutes, 10) || 0)
+      : 60;
+
+  if (isNaN(endTime.getTime())) {
+    return {
+      isFrozen: false,
+      freezeState: 'NOT_FROZEN',
+      freezeTime: null,
+      freezeMinutes,
+      serverTime: authoritativeTime,
+    };
+  }
+
+  // Calculate freeze start time, clamped so it does not precede start time
+  const calculatedFreezeTimeMs = endTime.getTime() - freezeMinutes * 60000;
+  const clampedFreezeTimeMs = !isNaN(startTime.getTime())
+    ? Math.max(startTime.getTime(), calculatedFreezeTimeMs)
+    : calculatedFreezeTimeMs;
+  const freezeTime = new Date(clampedFreezeTimeMs);
+
+  const nowMs = authoritativeTime.getTime();
+  const startMs = !isNaN(startTime.getTime()) ? startTime.getTime() : null;
+  const endMs = endTime.getTime();
+
+  // Freeze applies only when enabled, freezeMinutes > 0, within [freezeTime, endTime], and contest is running/started
+  const isWithinFreezeWindow =
+    freezeEnabled &&
+    freezeMinutes > 0 &&
+    nowMs >= clampedFreezeTimeMs &&
+    nowMs <= endMs &&
+    (startMs === null || nowMs >= startMs);
+
+  return {
+    isFrozen: isWithinFreezeWindow,
+    freezeState: isWithinFreezeWindow ? 'FROZEN' : 'NOT_FROZEN',
+    freezeTime,
+    freezeMinutes,
+    serverTime: authoritativeTime,
+  };
+};
+
+/**
  * Check if a contest's lifecycle fields are locked against mutation
  * @param {string} runtimeState - 'draft' | 'upcoming' | 'running' | 'ended' | 'archived'
  * @returns {boolean}
@@ -180,6 +271,7 @@ const getAvailableLifecycleActions = (contest, user) => {
 
 module.exports = {
   getContestRuntimeState,
+  getContestFreezeState,
   isLifecycleMutationLocked,
   getLifecycleLockMessage,
   getProblemMutationLockMessage,

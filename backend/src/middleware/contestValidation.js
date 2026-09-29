@@ -147,6 +147,28 @@ const validateUpdateContest = (req, res, next) => {
     errors.push('Description must be a valid text string.');
   }
 
+  if (isRated !== undefined && typeof isRated !== 'boolean') {
+    errors.push('isRated must be a boolean value.');
+  }
+
+  if (leaderboardFreezeEnabled !== undefined && typeof leaderboardFreezeEnabled !== 'boolean') {
+    errors.push('leaderboardFreezeEnabled must be a boolean value.');
+  }
+
+  if (leaderboardFreezeMinutes !== undefined && leaderboardFreezeMinutes !== null) {
+    const freezeMins = typeof leaderboardFreezeMinutes === 'number'
+      ? leaderboardFreezeMinutes
+      : Number(leaderboardFreezeMinutes);
+    if (isNaN(freezeMins) || !Number.isInteger(freezeMins) || freezeMins < 0) {
+      errors.push('leaderboardFreezeMinutes must be a non-negative integer.');
+    } else if (startTime && endTime && isValidDate(startTime) && isValidDate(endTime)) {
+      const durationMins = (new Date(endTime).getTime() - new Date(startTime).getTime()) / 60000;
+      if (freezeMins > durationMins) {
+        errors.push('Leaderboard freeze duration cannot exceed the total contest duration.');
+      }
+    }
+  }
+
   if (status !== undefined) {
     const validStatuses = ['draft', 'published', 'archived'];
     if (!validStatuses.includes(status)) {

@@ -1,6 +1,6 @@
 const db = require('../config/db');
 const ContestModel = require('../models/contestModel');
-const { getContestRuntimeState, formatContest } = require('./contestService');
+const { getContestRuntimeState, getContestFreezeState, formatContest } = require('./contestService');
 
 /**
  * Authoritative Standings Service - Single source of truth for Contest Standings,
@@ -65,17 +65,14 @@ class StandingsService {
     const endTime = new Date(formattedContest.endTime);
     const serverTimeIso = now.toISOString();
 
-    // 2. Freeze Status Calculation
-    const freezeMinutes = formattedContest.leaderboardFreezeMinutes || 60;
-    const freezeTime = new Date(endTime.getTime() - freezeMinutes * 60000);
-    const isFrozen =
-      formattedContest.leaderboardFreezeEnabled &&
-      now >= freezeTime &&
-      now <= endTime &&
-      !formattedContest.isRatingFinalized;
+    // 2. Authoritative Freeze Status Calculation
+    const freezeInfo = getContestFreezeState(formattedContest, now);
+    const isFrozen = freezeInfo.isFrozen;
+    const freezeState = freezeInfo.freezeState;
+    const freezeTime = freezeInfo.freezeTime;
 
     const applyFreezeCutoff = isFrozen && !(isManager && freezeOverride);
-    const effectiveCutoff = applyFreezeCutoff ? freezeTime : null;
+    const effectiveCutoff = applyFreezeCutoff && freezeTime ? freezeTime : null;
 
     // 3. Fetch Contest Problems
     const problemsText = `
@@ -469,7 +466,8 @@ class StandingsService {
       contest: {
         ...formattedContest,
         isFrozen,
-        freezeTime: freezeTime.toISOString(),
+        freezeState,
+        freezeTime: freezeTime ? freezeTime.toISOString() : null,
         serverTime: serverTimeIso,
       },
       problems: contestProblems.map((p) => ({
@@ -517,6 +515,8 @@ class StandingsService {
         isFinalized: Boolean(standingsData.contest.isRatingFinalized),
         ratingsFinalizedAt: standingsData.contest.ratingsFinalizedAt || null,
         runtimeState: standingsData.contest.runtimeState,
+        isFrozen: standingsData.contest.isFrozen,
+        freezeState: standingsData.contest.freezeState,
       },
       results: standingsData.standings,
       standings: standingsData.standings,
@@ -651,6 +651,7 @@ class StandingsService {
         isRatingFinalized: contest.isRatingFinalized,
         ratingsFinalizedAt: contest.ratingsFinalizedAt,
         isFrozen: contest.isFrozen,
+        freezeState: contest.freezeState || (contest.isFrozen ? 'FROZEN' : (contest.isRatingFinalized ? 'FINAL' : 'NOT_FROZEN')),
         freezeTime: contest.freezeTime,
         startTime: contest.startTime,
         endTime: contest.endTime,
@@ -678,6 +679,7 @@ class StandingsService {
         totalSubmissions: targetParticipant.totalSubmissions,
         lastAcceptedAt: targetParticipant.lastAcceptedAt,
         isFrozen: contest.isFrozen,
+        freezeState: contest.freezeState || (contest.isFrozen ? 'FROZEN' : (contest.isRatingFinalized ? 'FINAL' : 'NOT_FROZEN')),
       },
       problems: targetParticipant.problems,
       submissions: formattedSubmissions,

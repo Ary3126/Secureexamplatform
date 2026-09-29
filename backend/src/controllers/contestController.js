@@ -60,7 +60,10 @@ const createContest = async (req, res, next) => {
       createdBy,
       isRated: isRated !== undefined ? Boolean(isRated) : true,
       leaderboardFreezeEnabled: Boolean(leaderboardFreezeEnabled),
-      leaderboardFreezeMinutes: parseInt(leaderboardFreezeMinutes, 10) || 60,
+      leaderboardFreezeMinutes:
+        leaderboardFreezeMinutes !== undefined && leaderboardFreezeMinutes !== null
+          ? Math.max(0, parseInt(leaderboardFreezeMinutes, 10) || 0)
+          : 60,
     }, req.user, req);
 
     return res.status(201).json({
@@ -2337,8 +2340,8 @@ const finalizeContestRatings = async (req, res, next) => {
       });
     }
 
-    // Check manager permission
-    if (!canManageResource(req.user, contest) && req.user.role === 'student') {
+    // Check manager permission (strict ownership verification)
+    if (!canManageResource(req.user, contest)) {
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
