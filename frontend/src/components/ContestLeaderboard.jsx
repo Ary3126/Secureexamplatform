@@ -19,6 +19,7 @@ export default function ContestLeaderboard({
   token,
   currentUser,
   onNavigateBack,
+  onNavigateResults,
   onNavigateProfile,
   onOpenProblemInWorkspace,
 }) {
@@ -230,6 +231,18 @@ export default function ContestLeaderboard({
           )}
 
           <div className="leaderboard-action-group">
+            {onNavigateResults && (
+              <button
+                type="button"
+                className="live-toggle-btn"
+                onClick={() => onNavigateResults(contestId)}
+                title="View official contest results and awards"
+                style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)', color: '#fbbf24' }}
+              >
+                <Trophy size={14} />
+                <span>Results & Awards</span>
+              </button>
+            )}
             <button
               className={`live-toggle-btn ${isLiveActive ? 'active' : ''}`}
               onClick={() => setIsLiveActive(!isLiveActive)}

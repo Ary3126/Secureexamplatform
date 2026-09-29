@@ -13,6 +13,7 @@ import LoginModal from './components/LoginModal';
 import StudentDashboard from './components/StudentDashboard';
 import UserProfile from './components/UserProfile';
 import ContestLeaderboard from './components/ContestLeaderboard';
+import ContestResultsView from './components/ContestResultsView';
 import GlobalLeaderboard from './components/GlobalLeaderboard';
 import ProblemAuthoringStudio from './components/ProblemAuthoringStudio';
 import AdminPanel from './components/AdminPanel';
@@ -43,7 +44,7 @@ function MainApp() {
   const getInitialLeaderboardContestId = () => {
     if (typeof window === 'undefined') return null;
     const path = window.location.pathname.toLowerCase();
-    if (path.startsWith('/contests/') && (path.endsWith('/leaderboard') || path.endsWith('/standings'))) {
+    if (path.startsWith('/contests/') && (path.endsWith('/leaderboard') || path.endsWith('/standings') || path.endsWith('/results'))) {
       const parts = path.split('/');
       return parts[2] || null;
     }
@@ -72,6 +73,7 @@ function MainApp() {
     if (path === '/submissions' || path === '/history') return 'submissions';
     if (path === '/dashboard' || path === '/contests') return 'dashboard';
     if (path === '/leaderboard' || path === '/rankings' || path === '/standings') return 'rankings';
+    if (path.startsWith('/contests/') && path.endsWith('/results')) return 'results';
     if (path.startsWith('/contests/') && (path.endsWith('/leaderboard') || path.endsWith('/standings')) || (path.startsWith('/leaderboard/') && path !== '/leaderboard/')) return 'leaderboard';
     if (path === '/workspace' || path === '/practice') return 'workspace';
     if (path === '/profile' || path.startsWith('/profile/') || path.startsWith('/u/')) return 'profile';
@@ -124,7 +126,7 @@ function MainApp() {
     if (view === 'profile') {
       setProfileTargetUser(targetUser || null);
     }
-    if (view === 'leaderboard') {
+    if (view === 'leaderboard' || view === 'results') {
       setLeaderboardContestId(targetContestId || leaderboardContestId);
     }
     if (view === 'submission_detail') {
@@ -141,6 +143,7 @@ function MainApp() {
       else if (view === 'dashboard') path = '/dashboard';
       else if (view === 'rankings') path = '/leaderboard';
       else if (view === 'leaderboard') path = `/contests/${targetContestId || leaderboardContestId || '1'}/leaderboard`;
+      else if (view === 'results') path = `/contests/${targetContestId || leaderboardContestId || '1'}/results`;
       else if (view === 'profile') path = targetUser ? `/u/${targetUser}` : '/profile';
       else if (view === 'studio') path = '/studio';
       else if (view === 'admin') {
@@ -823,6 +826,7 @@ function MainApp() {
           onNavigateSubmissions={() => navigateTo('submissions')}
           onNavigateProfile={() => navigateTo('profile')}
           onNavigateLeaderboard={(targetContestId) => navigateTo('leaderboard', true, null, targetContestId)}
+          onNavigateResults={(targetContestId) => navigateTo('results', true, null, targetContestId)}
         />
       )}
 
@@ -833,6 +837,23 @@ function MainApp() {
           token={token}
           currentUser={currentUser}
           onNavigateBack={() => navigateTo('dashboard')}
+          onNavigateResults={(targetContestId) => navigateTo('results', true, null, targetContestId)}
+          onNavigateProfile={(targetUsername) => navigateTo('profile', true, targetUsername)}
+          onOpenProblemInWorkspace={(probId) => {
+            loadProblemDetails(probId);
+            navigateTo('workspace');
+          }}
+        />
+      )}
+
+      {/* 7b. Contest Results & Awards View (Phase 7.5.8.2) */}
+      {activeView === 'results' && (
+        <ContestResultsView
+          contestId={leaderboardContestId || (contest ? contest.id : '1')}
+          token={token}
+          currentUser={currentUser}
+          onNavigateBack={() => navigateTo('dashboard')}
+          onNavigateLeaderboard={(targetContestId) => navigateTo('leaderboard', true, null, targetContestId)}
           onNavigateProfile={(targetUsername) => navigateTo('profile', true, targetUsername)}
           onOpenProblemInWorkspace={(probId) => {
             loadProblemDetails(probId);

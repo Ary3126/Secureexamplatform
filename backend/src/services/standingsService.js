@@ -41,6 +41,22 @@ class StandingsService {
     }
 
     const formattedContest = formatContest(contest);
+
+    // Determine manager privileges
+    const isManager = Boolean(
+      requestingUser &&
+      (requestingUser.role === 'super_admin' ||
+        requestingUser.role === 'contest_admin' ||
+        (requestingUser.role === 'professor' && requestingUser.id === formattedContest.createdBy))
+    );
+
+    // BOLA Protection: Draft contests are strictly accessible by contest managers
+    if (contest.status === 'draft' && !isManager) {
+      const err = new Error(`Contest with ID ${contestId} not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+
     const now = new Date();
     const startTime = new Date(formattedContest.startTime);
     const endTime = new Date(formattedContest.endTime);
@@ -54,13 +70,6 @@ class StandingsService {
       now >= freezeTime &&
       now <= endTime &&
       !formattedContest.isRatingFinalized;
-
-    // Determine if submissions should be filtered by freeze cutoff
-    const isManager =
-      requestingUser &&
-      (requestingUser.role === 'super_admin' ||
-        requestingUser.role === 'contest_admin' ||
-        (requestingUser.role === 'professor' && requestingUser.id === formattedContest.createdBy));
 
     const applyFreezeCutoff = isFrozen && !(isManager && freezeOverride);
     const effectiveCutoff = applyFreezeCutoff ? freezeTime : null;
@@ -280,6 +289,36 @@ class StandingsService {
       evaluatedParticipants[i].rankMovement = 0;
     }
 
+    // Attach Official Rating Changes if Contest is Finalized
+    if (formattedContest.isRatingFinalized) {
+      try {
+        const rhAllText = `
+          SELECT user_id AS "userId", previous_rating AS "previousRating", rating_change AS "ratingChange", new_rating AS "newRating"
+          FROM rating_history
+          WHERE contest_id = $1;
+        `;
+        const rhAllRes = await executor.query(rhAllText, [contestId]);
+        const rhMap = new Map();
+        for (const row of rhAllRes.rows) {
+          rhMap.set(row.userId, row);
+        }
+        for (const p of evaluatedParticipants) {
+          const rh = rhMap.get(p.userId);
+          if (rh) {
+            p.previousRating = rh.previousRating;
+            p.ratingChange = rh.ratingChange;
+            p.newRating = rh.newRating;
+          } else {
+            p.previousRating = p.currentRating;
+            p.ratingChange = null;
+            p.newRating = p.currentRating;
+          }
+        }
+      } catch (e) {
+        // Non-critical fallback
+      }
+    }
+
     // 8. Podium Computation (Top 3 Ranks)
     const podium = evaluatedParticipants.slice(0, 3).map((p, idx) => ({
       podiumRank: idx + 1,
@@ -289,6 +328,8 @@ class StandingsService {
       fullName: p.fullName,
       avatarUrl: p.avatarUrl,
       currentRating: p.currentRating,
+      ratingChange: p.ratingChange !== undefined ? p.ratingChange : null,
+      newRating: p.newRating !== undefined ? p.newRating : p.currentRating,
       totalScore: p.totalScore,
       solvedProblemsCount: p.solvedProblemsCount,
       totalPenaltyMinutes: p.totalPenaltyMinutes,
@@ -309,11 +350,12 @@ class StandingsService {
           solvedProblemsCount: userRow.solvedProblemsCount,
           totalProblems: contestProblems.length,
           totalPenaltyMinutes: userRow.totalPenaltyMinutes,
-          ratingChange: null, // Populated below if rating finalized
+          ratingChange: userRow.ratingChange !== undefined ? userRow.ratingChange : null,
+          newRating: userRow.newRating !== undefined ? userRow.newRating : userRow.currentRating,
         };
 
-        // If contest ratings are finalized, attach official rating change from rating_history
-        if (formattedContest.isRatingFinalized) {
+        // Fallback check if rating history was not attached above
+        if (formattedContest.isRatingFinalized && userPosition.ratingChange === null) {
           try {
             const rhText = `
               SELECT rating_change AS "ratingChange", new_rating AS "newRating"
@@ -397,6 +439,38 @@ class StandingsService {
       podium,
       userPosition,
       contestSummary,
+    };
+  }
+
+  /**
+   * Authoritative Contest Results computation
+   * Reuses computeContestStandings and structures response explicitly for Contest Results view
+   * 
+   * @param {Object} params
+   * @returns {Promise<Object>} Authoritative Results Payload
+   */
+  static async computeContestResults(params) {
+    const standingsData = await this.computeContestStandings(params);
+    return {
+      contest: standingsData.contest,
+      resultSummary: {
+        totalParticipants: standingsData.contestSummary.totalParticipants,
+        totalProblems: standingsData.contestSummary.totalProblems,
+        topScore: standingsData.contestSummary.topScore,
+        averageScore: standingsData.contestSummary.averageScore,
+        medianScore: standingsData.contestSummary.medianScore,
+        isFinalized: Boolean(standingsData.contest.isRatingFinalized),
+        ratingsFinalizedAt: standingsData.contest.ratingsFinalizedAt || null,
+        runtimeState: standingsData.contest.runtimeState,
+      },
+      results: standingsData.standings,
+      standings: standingsData.standings,
+      podium: standingsData.podium,
+      userResult: standingsData.userPosition,
+      userPosition: standingsData.userPosition,
+      problems: standingsData.problems,
+      pagination: standingsData.pagination,
+      contestSummary: standingsData.contestSummary,
     };
   }
 }

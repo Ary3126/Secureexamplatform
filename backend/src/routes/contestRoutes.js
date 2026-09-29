@@ -25,6 +25,12 @@ const {
 router.get('/:id/leaderboard', optionalAuthenticate, mediumProtectionRateLimiter, contestController.getContestLeaderboard);
 
 /**
+ * @route GET /api/contests/:id/results
+ * Public/authenticated authoritative contest results view
+ */
+router.get('/:id/results', optionalAuthenticate, mediumProtectionRateLimiter, contestController.getContestResults);
+
+/**
  * @route GET /api/contests
  * List available contests with optional state filtering (Public / Protected)
  */

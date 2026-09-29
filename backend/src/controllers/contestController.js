@@ -2362,12 +2362,55 @@ const finalizeContestRatings = async (req, res, next) => {
  */
 const getContestLeaderboard = async (req, res, next) => {
   try {
-    const { id: contestId } = req.params;
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
     const { page, limit, search, freezeOverride } = req.query;
 
     const StandingsService = require('../services/standingsService');
     const result = await StandingsService.computeContestStandings({
-      contestId,
+      contestId: contestIdNum,
+      requestingUser: req.user || null,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 50,
+      search: search || '',
+      freezeOverride: freezeOverride === 'true' || freezeOverride === true,
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get authoritative contest results view
+ * @route GET /api/contests/:id/results
+ */
+const getContestResults = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const { page, limit, search, freezeOverride } = req.query;
+
+    const StandingsService = require('../services/standingsService');
+    const result = await StandingsService.computeContestResults({
+      contestId: contestIdNum,
       requestingUser: req.user || null,
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 50,
@@ -2578,4 +2621,5 @@ module.exports = {
   searchContestCandidateStudents,
   finalizeContestRatings,
   getContestLeaderboard,
+  getContestResults,
 };

@@ -30,6 +30,7 @@ export default function StudentDashboard({
   onNavigateSubmissions,
   onNavigateProfile,
   onNavigateLeaderboard,
+  onNavigateResults,
 }) {
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -616,7 +617,17 @@ export default function StudentDashboard({
                         </div>
                       </div>
                       <div className="enrolled-action" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        {onNavigateLeaderboard && (
+                        {onNavigateResults && (c.runtimeState === 'ended' || c.isRatingFinalized) ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => onNavigateResults(c.id)}
+                            style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)', color: '#fbbf24' }}
+                          >
+                            <Trophy className="w-3.5 h-3.5" />
+                            <span>Results</span>
+                          </button>
+                        ) : onNavigateLeaderboard && (
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"

@@ -1091,6 +1091,16 @@ export default function AdminContestManagement({
                 <BarChart3 size={14} /> Open Standings
               </a>
 
+              <a
+                href={`/contests/${inspectedContest.id}/results`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-table-action btn-action-results"
+                style={{ textDecoration: 'none', padding: '6px 14px', background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)', color: '#fbbf24' }}
+              >
+                <Trophy size={14} /> View Results
+              </a>
+
               <button
                 onClick={onCloseInspect}
                 className="pagination-btn"
