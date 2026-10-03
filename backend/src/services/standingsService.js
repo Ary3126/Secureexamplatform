@@ -470,6 +470,8 @@ class StandingsService {
         freezeTime: freezeTime ? freezeTime.toISOString() : null,
         serverTime: serverTimeIso,
       },
+      isFrozen,
+      freezeState,
       problems: contestProblems.map((p) => ({
         problemId: p.problemId,
         problemOrder: p.problemOrder,
