@@ -2356,6 +2356,15 @@ const finalizeContestRatings = async (req, res, next) => {
 
     // Check manager permission (strict ownership verification)
     if (!canManageResource(req.user, contest)) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_FINALIZATION_UNAUTHORIZED' },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -2477,6 +2486,15 @@ const getContestAdminLeaderboard = async (req, res, next) => {
     }
 
     if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'ADMIN_LEADERBOARD_UNAUTHORIZED' },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -2603,6 +2621,15 @@ const getContestParticipantResultDetails = async (req, res, next) => {
 
     // BOLA Check: Student can only view their own result details
     if (req.user.role === 'student' && targetUserId !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'PARTICIPANT_RESULTS_BOLA', targetUserId },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
@@ -2612,6 +2639,15 @@ const getContestParticipantResultDetails = async (req, res, next) => {
 
     // BOLA Check: Professor can only inspect contests they manage
     if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'PARTICIPANT_RESULTS_UNAUTHORIZED_PROFESSOR' },
+        req,
+      });
       return res.status(403).json({
         status: 'error',
         statusCode: 403,
