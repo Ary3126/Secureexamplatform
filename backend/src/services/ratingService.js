@@ -124,7 +124,13 @@ class RatingService {
 
   /**
    * Finalize ratings for a completed contest inside an ACID transaction (Idempotent)
-   * 
+   *
+   * Result Immutability Contract:
+   *   Once is_rating_finalized = true, the final_results_snapshot column is the authoritative,
+   *   sealed record of official standings and rating changes. The server enforces this lock
+   *   through the idempotency check inside a FOR UPDATE row lock. No client-supplied flag
+   *   (isFinal, isLocked, isPublished, etc.) can bypass this server-side authority.
+   *
    * @param {number|string} contestId
    * @param {Object} operatorUser - { id, role }
    * @param {Object} options - { force: boolean }
@@ -137,7 +143,9 @@ class RatingService {
     try {
       await client.query('BEGIN');
 
-      // 1. Fetch and row-lock the contest to prevent concurrent duplicate finalization
+      // 1. Fetch and row-lock the contest to prevent concurrent duplicate finalization.
+      // The FOR UPDATE lock serializes concurrent finalization requests at the database level,
+      // guaranteeing that only one transaction can proceed through the finalization path at a time.
       const contestRes = await client.query(
         `SELECT * FROM contests WHERE id = $1 FOR UPDATE;`,
         [contestId]
@@ -152,7 +160,7 @@ class RatingService {
 
       const contest = contestRes.rows[0];
 
-      // 2. Verify contest status and rated flag
+      // 2. Verify contest is published (not draft/archived)
       if (contest.status !== 'published') {
         await client.query('ROLLBACK');
         const err = new Error('Cannot finalize ratings: Contest is in draft status');
@@ -160,23 +168,19 @@ class RatingService {
         throw err;
       }
 
-      if (!contest.is_rated) {
-        await client.query('ROLLBACK');
-        const err = new Error('This contest is unrated; ratings cannot be calculated');
-        err.statusCode = 400;
-        throw err;
-      }
-
-      // 3. Timing Check (Contest must be ended unless force = true for administrative tests)
-      const runtimeState = getContestRuntimeState(contest);
-      if (runtimeState !== 'ended' && !force) {
-        await client.query('ROLLBACK');
-        const err = new Error(`Cannot finalize ratings while contest is '${runtimeState}'. Contest must be ended.`);
-        err.statusCode = 400;
-        throw err;
-      }
-
-      // 4. IDEMPOTENCY CHECK: If already finalized, return existing rating history without recalculating
+      // 3. IDEMPOTENCY CHECK: If already finalized, return existing data without recalculating.
+      //
+      // CRITICAL ORDER: This check MUST fire before the is_rated gate and before all other
+      // validation checks. Reasons:
+      //   a) Both rated AND unrated finalized contests must return alreadyFinalized idempotently.
+      //   b) A finalized contest may no longer satisfy timing conditions (e.g., status changed
+      //      after finalization), so re-validating would incorrectly block the idempotent return.
+      //   c) The FOR UPDATE row lock (step 1) guarantees this check + the atomic return below
+      //      cannot race with another concurrent finalization request.
+      //
+      // RESULT IMMUTABILITY: is_rating_finalized=true is the authoritative server-side lock.
+      // The final_results_snapshot is sealed at this point. No client-supplied body field
+      // (isFinal, isLocked, isPublished, score, rank, etc.) can alter or bypass this lock.
       if (contest.is_rating_finalized) {
         const existingHistory = await client.query(
           `SELECT * FROM rating_history WHERE contest_id = $1 ORDER BY rank ASC;`,
@@ -185,21 +189,66 @@ class RatingService {
         await client.query('COMMIT');
         return {
           alreadyFinalized: true,
-          message: 'Ratings have already been calculated and applied for this contest.',
+          message: 'Ratings and final results have already been finalized and published for this contest.',
           contestId: contest.id,
           finalizedAt: contest.ratings_finalized_at,
+          isRated: Boolean(contest.is_rated),
           ratingUpdates: existingHistory.rows,
+          finalResultsSnapshot: contest.final_results_snapshot || null,
         };
       }
 
-      // 5. Compute deterministic standings
+      // 4. Timing Check (Contest must be ended unless force = true for administrative needs)
+      const runtimeState = getContestRuntimeState(contest);
+      if (runtimeState !== 'ended' && !force) {
+        await client.query('ROLLBACK');
+        const err = new Error(`Cannot finalize ratings while contest is '${runtimeState}'. Contest must be ended.`);
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // 5. Pending Submissions Check: Do not finalize if submissions are currently queued or being judged.
+      // This prevents final_results_snapshot from being computed before all judge verdicts arrive.
+      // Any judge worker completing a verdict after finalization will write to submissions normally,
+      // but the official sealed snapshot (final_results_snapshot) remains unchanged.
+      const pendingRes = await client.query(
+        `SELECT COUNT(*)::int AS count 
+         FROM submissions 
+         WHERE contest_id = $1 AND is_sample_run = false AND status IN ('queued', 'running');`,
+        [contestId]
+      );
+      const pendingCount = pendingRes.rows[0]?.count || 0;
+      if (pendingCount > 0 && !force) {
+        await client.query('ROLLBACK');
+        const err = new Error(
+          `Cannot finalize contest: There are ${pendingCount} submission(s) currently being evaluated by the judge. Please wait for judging to complete before finalizing results.`
+        );
+        err.statusCode = 409;
+        throw err;
+      }
+
+      // 6. Compute deterministic standings across all submissions up to contest end
       const standings = await this.computeContestStandings(contestId, client);
 
       if (standings.length === 0) {
+        const snapshot = {
+          calculatedAt: new Date().toISOString(),
+          totalParticipants: 0,
+          isRated: Boolean(contest.is_rated),
+          topScore: 0,
+          podium: [],
+          standings: [],
+          ratingUpdates: [],
+        };
+
         // Mark as finalized even if 0 participants to close contest lifecycle
         await client.query(
-          `UPDATE contests SET is_rating_finalized = true, ratings_finalized_at = CURRENT_TIMESTAMP WHERE id = $1;`,
-          [contestId]
+          `UPDATE contests 
+           SET is_rating_finalized = true, 
+               ratings_finalized_at = CURRENT_TIMESTAMP,
+               final_results_snapshot = $2
+           WHERE id = $1;`,
+          [contestId, JSON.stringify(snapshot)]
         );
 
         if (operatorUser) {
@@ -209,7 +258,7 @@ class RatingService {
             resourceType: 'contest',
             resourceId: contest.id,
             outcome: 'success',
-            metadata: { participantCount: 0, isIdempotentSkip: false },
+            metadata: { participantCount: 0, isRated: Boolean(contest.is_rated), isIdempotentSkip: false },
             client,
             req,
           });
@@ -219,14 +268,65 @@ class RatingService {
         return {
           message: 'Contest finalized with 0 participants. No rating updates needed.',
           contestId: contest.id,
+          finalizedAt: new Date().toISOString(),
+          isRated: Boolean(contest.is_rated),
           ratingUpdates: [],
+          finalResultsSnapshot: snapshot,
         };
       }
 
-      // 6. Calculate pairwise Elo deltas
+      // 7. Unrated Contest Finalization: Record official standings and snapshot without rating changes.
+      // NOTE: is_rated is intentionally checked HERE (after idempotency + timing + pending checks)
+      // so that unrated contests flow through the same safety gates as rated ones before being sealed.
+      if (!contest.is_rated) {
+        const snapshot = {
+          calculatedAt: new Date().toISOString(),
+          totalParticipants: standings.length,
+          isRated: false,
+          topScore: standings[0]?.totalScore || 0,
+          podium: standings.slice(0, 3),
+          standings,
+          ratingUpdates: [],
+        };
+
+        await client.query(
+          `UPDATE contests 
+           SET is_rating_finalized = true, 
+               ratings_finalized_at = CURRENT_TIMESTAMP,
+               final_results_snapshot = $2
+           WHERE id = $1;`,
+          [contestId, JSON.stringify(snapshot)]
+        );
+
+        if (operatorUser) {
+          await AuditLogger.logAction({
+            actor: operatorUser,
+            action: 'RATINGS_FINALIZED',
+            resourceType: 'contest',
+            resourceId: contest.id,
+            outcome: 'success',
+            metadata: { participantCount: standings.length, isRated: false, isIdempotentSkip: false },
+            client,
+            req,
+          });
+        }
+
+        await client.query('COMMIT');
+        return {
+          message: `Contest final results successfully published for ${standings.length} participants (unrated contest).`,
+          contestId: contest.id,
+          finalizedAt: new Date().toISOString(),
+          isRated: false,
+          ratingUpdates: [],
+          finalResultsSnapshot: snapshot,
+          standings,
+        };
+      }
+
+      // 8. Calculate pairwise Elo deltas for rated contest
       const ratingUpdates = this.calculateRatingChanges(standings);
 
-      // 7. Persist updates and rating history for each participant
+      // 9. Persist updates and rating history for each participant
       for (const update of ratingUpdates) {
         // Update user record
         await RatingModel.updateUserRating(client, update.userId, {
@@ -250,10 +350,30 @@ class RatingService {
         });
       }
 
-      // 8. Mark contest as finalized
+      // 10. Build final results snapshot and mark contest as finalized.
+      // Once this UPDATE commits, is_rating_finalized=true seals the result permanently.
+      // The final_results_snapshot JSONB column is the official immutable record of:
+      //   - final standings (ranks, scores, penalties, solved counts)
+      //   - rating updates (previous/new ratings, deltas, performance ratings)
+      //   - podium (top 3 participants)
+      // Subsequent calls return alreadyFinalized=true from step 3 without re-computing.
+      const snapshot = {
+        calculatedAt: new Date().toISOString(),
+        totalParticipants: standings.length,
+        isRated: true,
+        topScore: standings[0]?.totalScore || 0,
+        podium: standings.slice(0, 3),
+        standings,
+        ratingUpdates,
+      };
+
       await client.query(
-        `UPDATE contests SET is_rating_finalized = true, ratings_finalized_at = CURRENT_TIMESTAMP WHERE id = $1;`,
-        [contestId]
+        `UPDATE contests 
+         SET is_rating_finalized = true, 
+             ratings_finalized_at = CURRENT_TIMESTAMP,
+             final_results_snapshot = $2
+         WHERE id = $1;`,
+        [contestId, JSON.stringify(snapshot)]
       );
 
       if (operatorUser) {
@@ -263,7 +383,7 @@ class RatingService {
           resourceType: 'contest',
           resourceId: contest.id,
           outcome: 'success',
-          metadata: { participantCount: ratingUpdates.length, isIdempotentSkip: false },
+          metadata: { participantCount: ratingUpdates.length, isRated: true, isIdempotentSkip: false },
           client,
           req,
         });
@@ -275,7 +395,9 @@ class RatingService {
         message: `Successfully calculated and applied rating updates for ${ratingUpdates.length} participants`,
         contestId: contest.id,
         finalizedAt: new Date().toISOString(),
+        isRated: true,
         ratingUpdates,
+        finalResultsSnapshot: snapshot,
       };
     } catch (error) {
       try {

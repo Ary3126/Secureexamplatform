@@ -281,6 +281,10 @@ const updateContest = async (req, res, next) => {
     }, req.user, req);
 
     if (updateResult.locked) {
+      const attemptedAction = updateResult.resultLocked
+        ? 'CONTEST_RESULT_MUTATION_AFTER_FINALIZATION'
+        : 'CONTEST_LIFECYCLE_UPDATE';
+
       await AuditLogger.logAction({
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
@@ -288,8 +292,9 @@ const updateContest = async (req, res, next) => {
         resourceId: id,
         outcome: 'denied',
         metadata: {
-          attemptedAction: 'CONTEST_LIFECYCLE_UPDATE',
+          attemptedAction,
           runtimeState: updateResult.runtimeState,
+          resultLocked: Boolean(updateResult.resultLocked),
         },
         req,
       });
@@ -2328,15 +2333,24 @@ const bulkRemoveContestParticipants = async (req, res, next) => {
  */
 const finalizeContestRatings = async (req, res, next) => {
   try {
-    const { id: contestId } = req.params;
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
     const { force } = req.body || {};
 
-    const contest = await ContestModel.findContestById(contestId);
+    const contest = await ContestModel.findContestById(contestIdNum);
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${contestId} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -2349,7 +2363,7 @@ const finalizeContestRatings = async (req, res, next) => {
       });
     }
 
-    const result = await RatingService.finalizeContestRatings(contestId, req.user, {
+    const result = await RatingService.finalizeContestRatings(contestIdNum, req.user, {
       force: Boolean(force),
     }, req);
 

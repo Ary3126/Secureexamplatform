@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS contests (
     ratings_finalized_at TIMESTAMP WITH TIME ZONE,
     leaderboard_freeze_enabled BOOLEAN NOT NULL DEFAULT false,
     leaderboard_freeze_minutes INTEGER NOT NULL DEFAULT 60,
+    final_results_snapshot JSONB DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT check_contest_times CHECK (end_time > start_time)

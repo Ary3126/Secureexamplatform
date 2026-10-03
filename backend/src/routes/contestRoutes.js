@@ -361,10 +361,18 @@ router.delete(
 
 /**
  * @route POST /api/contests/:id/finalize-ratings
- * Finalize contest ratings (restricted to contest managers/admins)
+ * @route POST /api/contests/:id/finalize
+ * Finalize contest results and calculate ratings (restricted to contest managers/admins)
  */
 router.post(
   '/:id/finalize-ratings',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  contestActionRateLimiter,
+  contestController.finalizeContestRatings
+);
+
+router.post(
+  '/:id/finalize',
   authorizeRoles('professor', 'contest_admin', 'super_admin'),
   contestActionRateLimiter,
   contestController.finalizeContestRatings

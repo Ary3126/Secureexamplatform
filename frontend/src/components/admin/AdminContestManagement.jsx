@@ -110,6 +110,7 @@ export default function AdminContestManagement({
   onUnpublishContest,
   onArchiveContest,
   onUpdateContest,
+  onFinalizeContest,
   onRetry,
   onCreateContest,
   isCreating = false,
@@ -117,10 +118,38 @@ export default function AdminContestManagement({
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   // editContest holds the full contest row currently being edited (or null if closed)
   const [editContest, setEditContest] = useState(null);
-  // confirmAction holds { type: 'archive' | 'unpublish', contestId, contestTitle } or null
+  // confirmAction holds { type: 'archive' | 'unpublish' | 'finalize', contestId, contestTitle, isRated } or null
   const [confirmAction, setConfirmAction] = useState(null);
   const [inspectDrawerTab, setInspectDrawerTab] = useState('problems');
   const totalPages = Math.max(Math.ceil(totalContests / limit) || 1, 1);
+
+  /**
+   * Finalize contest and calculate official results
+   */
+  const handleFinalizeAction = async (contestId) => {
+    if (onFinalizeContest) {
+      await onFinalizeContest(contestId);
+      return;
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/contests/${contestId}/finalize-ratings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Failed to finalize contest');
+        return;
+      }
+      if (onRetry) onRetry();
+    } catch (e) {
+      alert(e.message || 'Error finalizing contest');
+    }
+  };
 
   /**
    * Returns true if the current user has management permissions for the given contest.
@@ -724,6 +753,30 @@ export default function AdminContestManagement({
                             </button>
                           )}
 
+                          {/* Finalize Action (for ended published unfinalized contests) */}
+                          {c.status === 'published' && !c.isRatingFinalized && (c.runtimeState || '').toLowerCase() === 'ended' && canManageContest(c) && (
+                            <button
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'finalize',
+                                  contestId: c.id,
+                                  contestTitle: c.title,
+                                  isRated: c.isRated,
+                                })
+                              }
+                              disabled={isProcessing}
+                              className="btn-table-action"
+                              style={{
+                                background: 'rgba(34, 197, 94, 0.1)',
+                                color: '#22c55e',
+                                border: '1px solid rgba(34, 197, 94, 0.25)',
+                              }}
+                              title="Calculate official rankings and finalize contest"
+                            >
+                              <CheckCircle2 size={13} /> Finalize
+                            </button>
+                          )}
+
                           {/* Running Contest Lock Indicator */}
                           {(c.runtimeState || '').toLowerCase() === 'running' && (
                             <span
@@ -974,9 +1027,34 @@ export default function AdminContestManagement({
                         </div>
                       </div>
                       <div className="inspect-field-card">
-                        <div className="inspect-field-label">Rating Status</div>
-                        <div className="inspect-field-val">
-                          {inspectedContest.isRatingFinalized ? 'Ratings Finalized' : 'Pending Finalization'}
+                        <div className="inspect-field-label">Rating & Finalization</div>
+                        <div className="inspect-field-val" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <span>{inspectedContest.isRatingFinalized ? 'Results Finalized' : 'Pending Finalization'}</span>
+                          {!inspectedContest.isRatingFinalized && canManageContest(inspectedContest) && (inspectedContest.runtimeState || '').toLowerCase() === 'ended' && (
+                            <button
+                              onClick={() => {
+                                onCloseInspect();
+                                setConfirmAction({
+                                  type: 'finalize',
+                                  contestId: inspectedContest.id,
+                                  contestTitle: inspectedContest.title,
+                                  isRated: inspectedContest.isRated,
+                                });
+                              }}
+                              disabled={isProcessing}
+                              className="btn-table-action"
+                              style={{
+                                background: 'rgba(34, 197, 94, 0.15)',
+                                color: '#22c55e',
+                                border: '1px solid rgba(34, 197, 94, 0.3)',
+                                padding: '3px 8px',
+                                fontSize: '0.75rem',
+                              }}
+                              title="Finalize contest now"
+                            >
+                              <CheckCircle2 size={12} /> Finalize Now
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1167,14 +1245,33 @@ export default function AdminContestManagement({
                   alignItems: 'center',
                   justifyContent: 'center',
                   background:
-                    confirmAction.type === 'archive' ? 'rgba(148, 163, 184, 0.15)' : 'rgba(234, 179, 8, 0.15)',
-                  color: confirmAction.type === 'archive' ? '#94a3b8' : '#eab308',
+                    confirmAction.type === 'archive'
+                      ? 'rgba(148, 163, 184, 0.15)'
+                      : confirmAction.type === 'finalize'
+                      ? 'rgba(34, 197, 94, 0.15)'
+                      : 'rgba(234, 179, 8, 0.15)',
+                  color:
+                    confirmAction.type === 'archive'
+                      ? '#94a3b8'
+                      : confirmAction.type === 'finalize'
+                      ? '#22c55e'
+                      : '#eab308',
                 }}
               >
-                {confirmAction.type === 'archive' ? <Archive size={20} /> : <AlertTriangle size={20} />}
+                {confirmAction.type === 'archive' ? (
+                  <Archive size={20} />
+                ) : confirmAction.type === 'finalize' ? (
+                  <CheckCircle2 size={20} />
+                ) : (
+                  <AlertTriangle size={20} />
+                )}
               </div>
               <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#f8fafc' }}>
-                {confirmAction.type === 'archive' ? 'Confirm Contest Archival' : 'Confirm Contest Unpublish'}
+                {confirmAction.type === 'archive'
+                  ? 'Confirm Contest Archival'
+                  : confirmAction.type === 'finalize'
+                  ? 'Confirm Contest Finalization'
+                  : 'Confirm Contest Unpublish'}
               </h3>
             </div>
 
@@ -1184,6 +1281,12 @@ export default function AdminContestManagement({
                   Are you sure you want to archive <strong>"{confirmAction.contestTitle}"</strong>?
                   <br /><br />
                   Archiving will permanently freeze this contest as an immutable historical record. All submissions, participants, standings, ratings, and attached problems will be preserved, but no further modifications can be made.
+                </>
+              ) : confirmAction.type === 'finalize' ? (
+                <>
+                  Are you sure you want to finalize results for <strong>"{confirmAction.contestTitle}"</strong>?
+                  <br /><br />
+                  Finalization will compute official rankings, capture final standings, and {confirmAction.isRated ? 'apply Elo rating updates to all participants' : 'publish the official results (unrated contest)'}. This action cannot be undone.
                 </>
               ) : (
                 <>
@@ -1212,12 +1315,22 @@ export default function AdminContestManagement({
                     if (onArchiveContest) await onArchiveContest(confirmAction.contestId);
                   } else if (confirmAction.type === 'unpublish') {
                     if (onUnpublishContest) await onUnpublishContest(confirmAction.contestId);
+                  } else if (confirmAction.type === 'finalize') {
+                    await handleFinalizeAction(confirmAction.contestId);
                   }
                   setConfirmAction(null);
                 }}
                 style={{
-                  background: confirmAction.type === 'archive' ? '#64748b' : '#eab308',
-                  color: confirmAction.type === 'archive' ? '#ffffff' : '#0f172a',
+                  background:
+                    confirmAction.type === 'archive'
+                      ? '#64748b'
+                      : confirmAction.type === 'finalize'
+                      ? '#22c55e'
+                      : '#eab308',
+                  color:
+                    confirmAction.type === 'archive' || confirmAction.type === 'finalize'
+                      ? '#ffffff'
+                      : '#0f172a',
                   border: 'none',
                   borderRadius: '6px',
                   padding: '8px 16px',
@@ -1230,6 +1343,8 @@ export default function AdminContestManagement({
                   ? 'Processing...'
                   : confirmAction.type === 'archive'
                   ? 'Confirm Archive'
+                  : confirmAction.type === 'finalize'
+                  ? 'Confirm Finalize'
                   : 'Confirm Unpublish'}
               </button>
             </div>

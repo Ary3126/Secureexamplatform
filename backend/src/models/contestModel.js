@@ -115,6 +115,7 @@ class ContestModel {
         c.ratings_finalized_at AS "ratingsFinalizedAt",
         c.leaderboard_freeze_enabled AS "leaderboardFreezeEnabled",
         c.leaderboard_freeze_minutes AS "leaderboardFreezeMinutes",
+        c.final_results_snapshot AS "finalResultsSnapshot",
         c.created_by,
         c.created_by AS "createdBy", 
         u.username AS "creatorUsername",
@@ -314,17 +315,25 @@ class ContestModel {
   }
 
   /**
-   * Update contest details with lifecycle mutation locks and transactional row-level locking
+   * Update contest details with lifecycle mutation locks, finalization locks, and transactional row-level locking
+   *
+   * Result Integrity: After finalization (is_rating_finalized=true), fields that would affect
+   * the official result record (isRated, leaderboardFreezeEnabled, leaderboardFreezeMinutes)
+   * are blocked. The authoritative finalization state is read from the DB row lock, never from
+   * client-supplied request body values.
+   *
    * @param {number|string} id
    * @param {Object} updateData
-   * @returns {Promise<{success?: boolean, contest?: Object, locked?: boolean, runtimeState?: string, message?: string, notFound?: boolean}>}
+   * @returns {Promise<{success?: boolean, contest?: Object, locked?: boolean, resultLocked?: boolean, runtimeState?: string, message?: string, notFound?: boolean}>}
    */
   static async updateContestWithSafety(id, { title, description, startTime, endTime, isRated, leaderboardFreezeEnabled, leaderboardFreezeMinutes, status }, actor = null, req = null) {
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
 
-      // 1. Acquire exclusive row lock on contest
+      // 1. Acquire exclusive row lock on contest.
+      // Reading is_rating_finalized here under the FOR UPDATE lock gives us the authoritative
+      // finalization state to enforce result immutability in the checks below.
       const checkRes = await client.query(`
         SELECT 
           id, 
@@ -333,7 +342,8 @@ class ContestModel {
           start_time AS "startTime", 
           end_time AS "endTime", 
           status, 
-          created_by AS "createdBy"
+          created_by AS "createdBy",
+          is_rating_finalized AS "isRatingFinalized"
         FROM contests
         WHERE id = $1
         FOR UPDATE;
@@ -354,6 +364,33 @@ class ContestModel {
           locked: true,
           runtimeState,
           message: getLifecycleLockMessage(runtimeState),
+        };
+      }
+
+      // RESULT INTEGRITY CHECK: After finalization, certain fields are result-locked.
+      // The authoritative finalization state comes from the DB row lock above, NOT from any
+      // client-supplied body field. This is a server-side enforcement point.
+      //
+      // Blocked after finalization:
+      //   - isRated: Changing rated status after final results are published would be misleading
+      //     and would invalidate the official record of whether Elo changes were applied.
+      //   - leaderboardFreezeEnabled / leaderboardFreezeMinutes: Freeze settings no longer affect
+      //     the finalized leaderboard (freezeState=FINAL), but changing them could create confusion.
+      //
+      // Allowed after finalization:
+      //   - title / description: Cosmetic metadata-only changes do not affect result integrity.
+      //   - status=archived: A valid lifecycle close operation (ending the contest's public lifecycle).
+      const isResultMutating = isRated !== undefined || leaderboardFreezeEnabled !== undefined || leaderboardFreezeMinutes !== undefined;
+      const isArchiveOnly = status === 'archived' && title === undefined && description === undefined && startTime === undefined && endTime === undefined && isRated === undefined && leaderboardFreezeEnabled === undefined && leaderboardFreezeMinutes === undefined;
+
+      if (lockedContest.isRatingFinalized && isResultMutating) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          resultLocked: true,
+          runtimeState,
+          message: 'Cannot modify result-affecting contest settings after final results have been published.',
         };
       }
 

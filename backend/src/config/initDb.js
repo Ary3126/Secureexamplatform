@@ -51,6 +51,7 @@ const initDb = async () => {
       ALTER TABLE contests ADD COLUMN IF NOT EXISTS ratings_finalized_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE contests ADD COLUMN IF NOT EXISTS leaderboard_freeze_enabled BOOLEAN NOT NULL DEFAULT false;
       ALTER TABLE contests ADD COLUMN IF NOT EXISTS leaderboard_freeze_minutes INTEGER NOT NULL DEFAULT 60;
+      ALTER TABLE contests ADD COLUMN IF NOT EXISTS final_results_snapshot JSONB DEFAULT NULL;
 
       -- Ensure submissions.contest_id is nullable for public practice submissions
       DO $$

@@ -213,6 +213,7 @@ const formatContest = (contest) => {
     ratingsFinalizedAt: contest.ratingsFinalizedAt || contest.ratings_finalized_at || null,
     leaderboardFreezeEnabled: contest.leaderboardFreezeEnabled !== undefined ? contest.leaderboardFreezeEnabled : (contest.leaderboard_freeze_enabled || false),
     leaderboardFreezeMinutes: contest.leaderboardFreezeMinutes !== undefined ? parseInt(contest.leaderboardFreezeMinutes, 10) : (contest.leaderboard_freeze_minutes ? parseInt(contest.leaderboard_freeze_minutes, 10) : 60),
+    finalResultsSnapshot: contest.finalResultsSnapshot || contest.final_results_snapshot || null,
     createdAt: contest.createdAt || contest.created_at,
     updatedAt: contest.updatedAt || contest.updated_at,
   };
