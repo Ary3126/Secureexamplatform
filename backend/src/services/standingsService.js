@@ -32,6 +32,7 @@ class StandingsService {
     sortOrder = 'ASC',
     filterStatus = 'all',
     clientOrDb = null,
+    isExport = false,
   }) {
     const executor = clientOrDb || db;
 
@@ -436,12 +437,13 @@ class StandingsService {
       });
     }
 
+    const isExportMode = Boolean(isExport || limit === 'all' || limit === 0 || limit === '0');
     const totalParticipants = filteredParticipants.length;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
-    const totalPages = Math.max(1, Math.ceil(totalParticipants / limitNum));
-    const offset = (pageNum - 1) * limitNum;
-    const paginatedStandings = filteredParticipants.slice(offset, offset + limitNum);
+    const limitNum = isExportMode ? totalParticipants : Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+    const totalPages = isExportMode ? 1 : Math.max(1, Math.ceil(totalParticipants / limitNum));
+    const offset = isExportMode ? 0 : (pageNum - 1) * limitNum;
+    const paginatedStandings = isExportMode ? filteredParticipants : filteredParticipants.slice(offset, offset + limitNum);
 
     // 11. Contest Summary Metrics
     const scores = evaluatedParticipants.map((p) => p.totalScore);
@@ -491,6 +493,7 @@ class StandingsService {
         filterStatus: filterStatus || 'all',
       },
       standings: paginatedStandings,
+      _allParticipants: evaluatedParticipants,
       podium,
       userPosition,
       contestSummary,

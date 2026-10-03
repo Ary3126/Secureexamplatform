@@ -3,6 +3,7 @@ const UserModel = require('../models/userModel');
 const ProblemModel = require('../models/problemModel');
 const RatingService = require('../services/ratingService');
 const AuditLogger = require('../services/auditLogger');
+const ContestExportService = require('../services/contestExportService');
 const db = require('../config/db');
 const {
   canManageResource,
@@ -2848,6 +2849,421 @@ const reorderContestProblems = async (req, res, next) => {
   }
 };
 
+/**
+ * Export contest results / standings in CSV or JSON format
+ * @route GET /api/contests/:id/export/results
+ */
+const exportContestResults = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    // Role check: Only professors, contest_admin, and super_admin are authorized
+    if (!req.user || !['professor', 'contest_admin', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not have permission to export contest results.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    // BOLA check: professor can only export contests they created
+    if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_RESULTS_EXPORT_UNAUTHORIZED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not manage this contest.',
+      });
+    }
+
+    const { format = 'csv', freezeOverride } = req.query;
+    const effectiveFreezeOverride = freezeOverride === 'true' || freezeOverride === true;
+
+    const exportResult = await ContestExportService.exportContestResults({
+      contestId: contestIdNum,
+      requestingUser: req.user,
+      format,
+      freezeOverride: effectiveFreezeOverride,
+    });
+
+    await AuditLogger.logAction({
+      actor: req.user,
+      action: 'CONTEST_RESULTS_EXPORTED',
+      resourceType: 'contest',
+      resourceId: contestIdNum,
+      outcome: 'success',
+      metadata: {
+        format,
+        rowCount: exportResult.rowCount,
+        filename: exportResult.filename,
+      },
+      req,
+    });
+
+    res.setHeader('Content-Type', exportResult.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+    return res.status(200).send(exportResult.content);
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
+/**
+ * Export all participants summary breakdown in CSV or JSON format
+ * @route GET /api/contests/:id/export/participants
+ */
+const exportContestParticipants = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    if (!req.user || !['professor', 'contest_admin', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not have permission to export contest participants.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_PARTICIPANTS_EXPORT_UNAUTHORIZED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not manage this contest.',
+      });
+    }
+
+    const { format = 'csv', freezeOverride } = req.query;
+    const effectiveFreezeOverride = freezeOverride === 'true' || freezeOverride === true;
+
+    const exportResult = await ContestExportService.exportAllParticipants({
+      contestId: contestIdNum,
+      requestingUser: req.user,
+      format,
+      freezeOverride: effectiveFreezeOverride,
+    });
+
+    await AuditLogger.logAction({
+      actor: req.user,
+      action: 'CONTEST_PARTICIPANTS_EXPORTED',
+      resourceType: 'contest',
+      resourceId: contestIdNum,
+      outcome: 'success',
+      metadata: {
+        format,
+        rowCount: exportResult.rowCount,
+        filename: exportResult.filename,
+      },
+      req,
+    });
+
+    res.setHeader('Content-Type', exportResult.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+    return res.status(200).send(exportResult.content);
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
+/**
+ * Export individual participant performance and submission history in CSV or JSON format
+ * @route GET /api/contests/:id/participants/:userId/export
+ */
+const exportParticipantResultDetails = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    if (!req.user) {
+      return res.status(401).json({
+        status: 'error',
+        statusCode: 401,
+        message: 'Unauthorized. Authentication token required.',
+      });
+    }
+
+    let targetUserId;
+    if (req.params.userId === 'me' || !req.params.userId) {
+      targetUserId = req.user.id;
+    } else {
+      const parsedUserId = Number(req.params.userId);
+      if (!Number.isInteger(parsedUserId) || parsedUserId <= 0) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Invalid participant ID format. Must be a positive integer or "me".',
+        });
+      }
+      targetUserId = parsedUserId;
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    const isManager = Boolean(
+      req.user.role === 'super_admin' ||
+      req.user.role === 'contest_admin' ||
+      (req.user.role === 'professor' && req.user.id === contest.created_by)
+    );
+
+    if (contest.status === 'draft' && !isManager) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    // BOLA check: Student can only export their own results
+    if (req.user.role === 'student' && targetUserId !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'PARTICIPANT_EXPORT_BOLA', targetUserId },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: "Forbidden. You do not have permission to export another student's contest result details.",
+      });
+    }
+
+    // BOLA check: Professor can only inspect contests they manage
+    if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'PARTICIPANT_EXPORT_UNAUTHORIZED_PROFESSOR' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not manage this contest.',
+      });
+    }
+
+    const { format = 'csv', freezeOverride } = req.query;
+    const effectiveFreezeOverride = isManager && (freezeOverride === 'true' || freezeOverride === true);
+
+    const exportResult = await ContestExportService.exportParticipantDetails({
+      contestId: contestIdNum,
+      targetUserId,
+      requestingUser: req.user,
+      format,
+      freezeOverride: effectiveFreezeOverride,
+    });
+
+    await AuditLogger.logAction({
+      actor: req.user,
+      action: 'PARTICIPANT_RESULTS_EXPORTED',
+      resourceType: 'contest',
+      resourceId: contestIdNum,
+      outcome: 'success',
+      metadata: {
+        targetUserId,
+        format,
+        rowCount: exportResult.rowCount,
+        filename: exportResult.filename,
+      },
+      req,
+    });
+
+    res.setHeader('Content-Type', exportResult.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+    return res.status(200).send(exportResult.content);
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: error.message,
+      });
+    }
+    if (error.statusCode === 404) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
+/**
+ * Export contest submissions and performance log in CSV or JSON format
+ * @route GET /api/contests/:id/export/submissions
+ */
+const exportContestSubmissions = async (req, res, next) => {
+  try {
+    const rawContestId = req.params.contestId || req.params.id;
+    const contestIdNum = Number(rawContestId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    if (!req.user || !['professor', 'contest_admin', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not have permission to export contest submissions.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
+    if (!contest) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (req.user.role === 'professor' && contest.created_by !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_SUBMISSIONS_EXPORT_UNAUTHORIZED' },
+        req,
+      });
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden. You do not manage this contest.',
+      });
+    }
+
+    const { format = 'csv', freezeOverride } = req.query;
+    const effectiveFreezeOverride = freezeOverride === 'true' || freezeOverride === true;
+
+    const exportResult = await ContestExportService.exportContestSubmissions({
+      contestId: contestIdNum,
+      requestingUser: req.user,
+      format,
+      freezeOverride: effectiveFreezeOverride,
+    });
+
+    await AuditLogger.logAction({
+      actor: req.user,
+      action: 'CONTEST_SUBMISSIONS_EXPORTED',
+      resourceType: 'contest',
+      resourceId: contestIdNum,
+      outcome: 'success',
+      metadata: {
+        format,
+        rowCount: exportResult.rowCount,
+        filename: exportResult.filename,
+      },
+      req,
+    });
+
+    res.setHeader('Content-Type', exportResult.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+    return res.status(200).send(exportResult.content);
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
 module.exports = {
   createContest,
   getAllContests,
@@ -2878,4 +3294,8 @@ module.exports = {
   getContestAdminLeaderboard,
   getContestParticipantResultDetails,
   getMyContestResultDetails,
+  exportContestResults,
+  exportContestParticipants,
+  exportParticipantResultDetails,
+  exportContestSubmissions,
 };

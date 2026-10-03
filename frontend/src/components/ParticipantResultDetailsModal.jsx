@@ -18,6 +18,7 @@ import {
   Unlock,
   Eye,
   Check,
+  Download,
 } from 'lucide-react';
 import CoderEmblem from './CoderEmblem';
 import SubmissionCodeModal from './SubmissionCodeModal';
@@ -42,8 +43,53 @@ export default function ParticipantResultDetailsModal({
   const [error, setError] = useState(null);
   const [freezeOverride, setFreezeOverride] = useState(initialFreezeOverride);
   const [activeCodeSubmission, setActiveCodeSubmission] = useState(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState(null);
 
   const effectiveToken = token || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+
+  const handleExport = async (format) => {
+    setExportLoading(true);
+    setExportError(null);
+    try {
+      const url =
+        participantId === 'me' || !participantId
+          ? `/api/contests/${contestId}/results/me/export?format=${format}${isManager && freezeOverride ? '&freezeOverride=true' : ''}`
+          : `/api/contests/${contestId}/participants/${participantId}/export?format=${format}${isManager && freezeOverride ? '&freezeOverride=true' : ''}`;
+
+      const headers = {};
+      if (effectiveToken) {
+        headers['Authorization'] = `Bearer ${effectiveToken}`;
+      }
+
+      const res = await fetch(url, { headers });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.message || `Export failed with status ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition');
+      let filename = `contest_${contestId}_participant_${participantId || 'me'}.${format}`;
+      if (disposition && disposition.includes('filename=')) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) filename = match[1];
+      }
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      setExportError(err.message || 'Failed to export participant report');
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   const fetchDetails = useCallback(async () => {
     if (!contestId) return;
@@ -217,6 +263,30 @@ export default function ParticipantResultDetailsModal({
 
             <button
               type="button"
+              className="freeze-toggle-btn"
+              onClick={() => handleExport('csv')}
+              disabled={exportLoading || loading}
+              title="Export participant report as CSV"
+              style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.3)' }}
+            >
+              <Download size={13} />
+              <span>{exportLoading ? '...' : 'CSV'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="freeze-toggle-btn"
+              onClick={() => handleExport('json')}
+              disabled={exportLoading || loading}
+              title="Export participant report as JSON"
+              style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.3)' }}
+            >
+              <Download size={13} />
+              <span>{exportLoading ? '...' : 'JSON'}</span>
+            </button>
+
+            <button
+              type="button"
               className="modal-close-icon-btn"
               onClick={onClose}
               aria-label="Close modal"
@@ -246,6 +316,37 @@ export default function ParticipantResultDetailsModal({
             </div>
           ) : (
             <>
+              {/* Export Error Alert */}
+              {exportError && (
+                <div
+                  role="alert"
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '0.8rem',
+                    color: '#f87171',
+                    marginBottom: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <AlertTriangle size={14} />
+                    <span>{exportError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExportError(null)}
+                    style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer' }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               {/* Leaderboard Freeze Warning Banner */}
               {(contest?.isFrozen || contest?.freezeState === 'FROZEN') && !freezeOverride && (
                 <div className="freeze-notice-banner" role="alert" aria-live="polite">

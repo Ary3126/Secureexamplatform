@@ -26,6 +26,8 @@ import {
   Layers,
   Users,
   ShieldAlert,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 import ParticipantResultDetailsModal from '../ParticipantResultDetailsModal';
 import './adminContestLeaderboard.css';
@@ -49,10 +51,82 @@ export default function AdminContestLeaderboard({
   const [page, setPage] = useState(1);
   const [freezeOverride, setFreezeOverride] = useState(true);
 
+  // Export State
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState(null);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+
   // Participant Inspection Modal State
   const [inspectedParticipant, setInspectedParticipant] = useState(null);
 
   const debounceTimerRef = useRef(null);
+  const exportDropdownRef = useRef(null);
+
+  // Close export dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target)) {
+        setExportDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleExport = async (type, format) => {
+    setExportLoading(true);
+    setExportError(null);
+    setExportDropdownOpen(false);
+
+    try {
+      const authToken = token || currentUser?.token || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+      const headers = {};
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
+      const params = new URLSearchParams({
+        format,
+        freezeOverride: String(freezeOverride),
+      });
+
+      let endpoint = '';
+      if (type === 'results') {
+        endpoint = `/api/contests/${contestId}/export/results?${params.toString()}`;
+      } else if (type === 'participants') {
+        endpoint = `/api/contests/${contestId}/export/participants?${params.toString()}`;
+      } else if (type === 'submissions') {
+        endpoint = `/api/contests/${contestId}/export/submissions?${params.toString()}`;
+      }
+
+      const res = await fetch(endpoint, { method: 'GET', headers });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.message || `Export failed with status ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition');
+      let filename = `contest_${contestId}_${type}.${format}`;
+      if (disposition && disposition.includes('filename=')) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) filename = match[1];
+      }
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      setExportError(err.message || 'Failed to export contest data');
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   // Debounce search input
   const handleSearchChange = (e) => {
@@ -220,8 +294,127 @@ export default function AdminContestLeaderboard({
             <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
+
+          {/* Export Dropdown */}
+          <div className="admin-lb-export-container" ref={exportDropdownRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="admin-lb-btn-export"
+              onClick={() => setExportDropdownOpen(!exportDropdownOpen)}
+              disabled={exportLoading}
+              title="Export contest data"
+              aria-expanded={exportDropdownOpen}
+              aria-haspopup="true"
+            >
+              {exportLoading ? (
+                <RotateCw size={13} className="animate-spin" />
+              ) : (
+                <Download size={13} />
+              )}
+              <span>{exportLoading ? 'Exporting...' : 'Export'}</span>
+            </button>
+
+            {exportDropdownOpen && (
+              <div className="admin-lb-export-menu" role="menu">
+                <div className="admin-lb-export-group-title">Leaderboard Results</div>
+                <button
+                  type="button"
+                  className="admin-lb-export-item"
+                  onClick={() => handleExport('results', 'csv')}
+                >
+                  <FileSpreadsheet size={13} />
+                  <span>Results (CSV)</span>
+                </button>
+                <button
+                  type="button"
+                  className="admin-lb-export-item"
+                  onClick={() => handleExport('results', 'json')}
+                >
+                  <Download size={13} />
+                  <span>Results (JSON)</span>
+                </button>
+
+                <div className="admin-lb-export-divider" />
+                <div className="admin-lb-export-group-title">Participants Breakdown</div>
+                <button
+                  type="button"
+                  className="admin-lb-export-item"
+                  onClick={() => handleExport('participants', 'csv')}
+                >
+                  <FileSpreadsheet size={13} />
+                  <span>Participants (CSV)</span>
+                </button>
+                <button
+                  type="button"
+                  className="admin-lb-export-item"
+                  onClick={() => handleExport('participants', 'json')}
+                >
+                  <Download size={13} />
+                  <span>Participants (JSON)</span>
+                </button>
+
+                <div className="admin-lb-export-divider" />
+                <div className="admin-lb-export-group-title">Submissions Report</div>
+                <button
+                  type="button"
+                  className="admin-lb-export-item"
+                  onClick={() => handleExport('submissions', 'csv')}
+                >
+                  <FileSpreadsheet size={13} />
+                  <span>Submissions (CSV)</span>
+                </button>
+                <button
+                  type="button"
+                  className="admin-lb-export-item"
+                  onClick={() => handleExport('submissions', 'json')}
+                >
+                  <Download size={13} />
+                  <span>Submissions (JSON)</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Export Error Alert */}
+      {exportError && (
+        <div
+          role="alert"
+          style={{
+            background: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '0.8rem',
+            color: '#f87171',
+            marginBottom: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={15} />
+            <span>{exportError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportError(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#f87171',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+            aria-label="Dismiss error"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Freeze Warning Banner if currently frozen */}
       {isContestFrozen && (

@@ -277,6 +277,19 @@ router.get(
 );
 
 /**
+ * @route GET /api/contests/:id/results/me/export
+ * Export current student's own contest result details
+ */
+router.get(
+  '/:id/results/me/export',
+  mediumProtectionRateLimiter,
+  (req, res, next) => {
+    req.params.userId = 'me';
+    return contestController.exportParticipantResultDetails(req, res, next);
+  }
+);
+
+/**
  * @route GET /api/contests/:id/participants/:userId/results
  * Get participant contest result details (authorized for student self or contest managers)
  */
@@ -284,6 +297,49 @@ router.get(
   '/:id/participants/:userId/results',
   mediumProtectionRateLimiter,
   contestController.getContestParticipantResultDetails
+);
+
+/**
+ * @route GET /api/contests/:id/participants/:userId/export
+ * Export participant contest result details (authorized for student self or contest managers)
+ */
+router.get(
+  '/:id/participants/:userId/export',
+  mediumProtectionRateLimiter,
+  contestController.exportParticipantResultDetails
+);
+
+/**
+ * @route GET /api/contests/:id/export/results
+ * Export contest results / standings (Admin/Professor only)
+ */
+router.get(
+  '/:id/export/results',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  mediumProtectionRateLimiter,
+  contestController.exportContestResults
+);
+
+/**
+ * @route GET /api/contests/:id/export/participants
+ * Export all participants summary (Admin/Professor only)
+ */
+router.get(
+  '/:id/export/participants',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  mediumProtectionRateLimiter,
+  contestController.exportContestParticipants
+);
+
+/**
+ * @route GET /api/contests/:id/export/submissions
+ * Export contest submissions / performance report (Admin/Professor only)
+ */
+router.get(
+  '/:id/export/submissions',
+  authorizeRoles('professor', 'contest_admin', 'super_admin'),
+  mediumProtectionRateLimiter,
+  contestController.exportContestSubmissions
 );
 
 /**
