@@ -65,6 +65,7 @@ const initDb = async () => {
       END $$;
 
       CREATE INDEX IF NOT EXISTS idx_submissions_contest_user_status ON submissions(contest_id, user_id, status, is_sample_run);
+      CREATE INDEX IF NOT EXISTS idx_submissions_contest_standings ON submissions(contest_id, is_sample_run, created_at ASC);
 
       -- Phase 5.9.2.2: Ensure submissions foreign keys use RESTRICT to prevent accidental cascade deletion
       DO $$

@@ -133,7 +133,7 @@ class StandingsService {
       submissionsText += ` AND s.created_at <= $2`;
     }
 
-    submissionsText += ` ORDER BY s.created_at ASC;`;
+    submissionsText += ` ORDER BY s.created_at ASC, s.id ASC;`;
     const subsRes = await executor.query(submissionsText, subParams);
     const submissions = subsRes.rows;
 
@@ -244,6 +244,7 @@ class StandingsService {
         solvedProblemsCount: solvedCount,
         totalSubmissions,
         lastAcceptedAt: lastAcceptedTimestamp ? lastAcceptedTimestamp.toISOString() : null,
+        lastAcceptedAtMs: lastAcceptedTimestamp ? lastAcceptedTimestamp.getTime() : null,
         problems: problemDetails,
       };
     });
@@ -260,12 +261,12 @@ class StandingsService {
       if (a.totalPenaltyMinutes !== b.totalPenaltyMinutes) {
         return a.totalPenaltyMinutes - b.totalPenaltyMinutes;
       }
-      if (a.lastAcceptedAt && b.lastAcceptedAt) {
-        const timeDiff = new Date(a.lastAcceptedAt).getTime() - new Date(b.lastAcceptedAt).getTime();
+      if (a.lastAcceptedAtMs && b.lastAcceptedAtMs) {
+        const timeDiff = a.lastAcceptedAtMs - b.lastAcceptedAtMs;
         if (timeDiff !== 0) return timeDiff;
-      } else if (a.lastAcceptedAt && !b.lastAcceptedAt) {
+      } else if (a.lastAcceptedAtMs && !b.lastAcceptedAtMs) {
         return -1;
-      } else if (!a.lastAcceptedAt && b.lastAcceptedAt) {
+      } else if (!a.lastAcceptedAtMs && b.lastAcceptedAtMs) {
         return 1;
       }
       if (a.totalTimeMs !== b.totalTimeMs) {
@@ -560,8 +561,8 @@ class StandingsService {
     const standingsData = await this.computeContestStandings({
       contestId,
       requestingUser,
-      page: 1,
-      limit: 10000,
+      isExport: true,
+      limit: 'all',
       freezeOverride,
       clientOrDb: executor,
     });

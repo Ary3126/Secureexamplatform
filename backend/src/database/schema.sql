@@ -53,6 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_contests_created_by ON contests(created_by);
 CREATE INDEX IF NOT EXISTS idx_contests_status ON contests(status);
 CREATE INDEX IF NOT EXISTS idx_contests_times ON contests(start_time, end_time);
 CREATE INDEX IF NOT EXISTS idx_submissions_contest_user_status ON submissions(contest_id, user_id, status, is_sample_run);
+CREATE INDEX IF NOT EXISTS idx_submissions_contest_standings ON submissions(contest_id, is_sample_run, created_at ASC);
 
 -- 3. PROBLEMS TABLE (Phase 3 & 4A Extra & 5.9.5 Versioning)
 CREATE TABLE IF NOT EXISTS problems (

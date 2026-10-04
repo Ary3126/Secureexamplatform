@@ -15,6 +15,7 @@
 const db = require('../config/db');
 const ContestModel = require('../models/contestModel');
 const StandingsService = require('./standingsService');
+const { getContestFreezeState, formatContest } = require('./contestService');
 
 /**
  * Escapes a cell value for standard RFC 4180 CSV compliance
@@ -99,18 +100,34 @@ class ContestExportService {
           difficulty: p.difficulty,
           maxPoints: p.maxPoints,
         })),
-        standings: standings.map((row) => ({
-          rank: row.rank,
-          userId: row.userId,
-          username: row.username,
-          fullName: row.fullName,
-          totalScore: row.totalScore,
-          solvedProblemsCount: row.solvedProblemsCount,
-          totalPenaltyMinutes: row.totalPenaltyMinutes,
-          totalSubmissions: row.totalSubmissions,
-          ratingChange: row.ratingChange ?? null,
-          problemResults: row.problemResults || {},
-        })),
+        standings: standings.map((row) => {
+          let problemResults = row.problemResults;
+          if (!problemResults && Array.isArray(row.problems)) {
+            problemResults = {};
+            for (const pr of row.problems) {
+              problemResults[pr.problemId] = {
+                points: pr.points || 0,
+                status: pr.status || 'unattempted',
+                attemptsCount: pr.attemptsCount || 0,
+                penaltyContribution: pr.penaltyContribution || 0,
+                acceptedTimeMinutes: pr.acceptedTimeMinutes ?? null,
+                solved: pr.status === 'solved',
+              };
+            }
+          }
+          return {
+            rank: row.rank,
+            userId: row.userId,
+            username: row.username,
+            fullName: row.fullName,
+            totalScore: row.totalScore,
+            solvedProblemsCount: row.solvedProblemsCount,
+            totalPenaltyMinutes: row.totalPenaltyMinutes,
+            totalSubmissions: row.totalSubmissions,
+            ratingChange: row.ratingChange ?? null,
+            problemResults: problemResults || {},
+          };
+        }),
       };
 
       return {
@@ -146,6 +163,10 @@ class ContestExportService {
     const csvRows = [headers.map(escapeCsv).join(',')];
 
     for (const row of standings) {
+      const problemMap = Array.isArray(row.problems)
+        ? new Map(row.problems.map((prob) => [prob.problemId, prob]))
+        : new Map();
+
       const rowData = [
         row.rank,
         row.userId,
@@ -159,7 +180,7 @@ class ContestExportService {
 
       // Add problem results
       problems.forEach((p) => {
-        const pr = row.problemResults?.[p.problemId];
+        const pr = problemMap.get(p.problemId) || row.problemResults?.[p.problemId];
         if (pr) {
           rowData.push(pr.points || 0);
           rowData.push(pr.status || 'unattempted');
@@ -391,7 +412,7 @@ class ContestExportService {
         pr.status,
         pr.points,
         pr.attemptsCount,
-        pr.penaltyContributionMinutes || 0,
+        pr.penaltyContribution ?? pr.penaltyContributionMinutes ?? 0,
         pr.acceptedTimeMinutes ?? '',
       ].map(escapeCsv).join(','));
     }
@@ -454,8 +475,22 @@ class ContestExportService {
       throw err;
     }
 
+    const formattedContest = formatContest(contest);
+    const freezeInfo = getContestFreezeState(formattedContest, new Date());
+    const isFrozen = freezeInfo.isFrozen;
+    const freezeTime = freezeInfo.freezeTime;
+
+    const isManager = Boolean(
+      requestingUser &&
+      (requestingUser.role === 'super_admin' ||
+        requestingUser.role === 'contest_admin' ||
+        (requestingUser.role === 'professor' && requestingUser.id === formattedContest.createdBy))
+    );
+
+    const applyFreezeCutoff = isFrozen && !(isManager && freezeOverride);
+
     // Efficient indexed query joining submissions with contest problems and user details
-    const subsQuery = `
+    let subsQuery = `
       SELECT 
         s.id AS "submissionId",
         s.problem_id AS "problemId",
@@ -476,10 +511,17 @@ class ContestExportService {
       JOIN problems p ON s.problem_id = p.id
       JOIN users u ON s.user_id = u.id
       WHERE s.contest_id = $1 AND s.is_sample_run = false
-      ORDER BY s.created_at DESC;
     `;
+    const queryParams = [contestId];
 
-    const res = await db.query(subsQuery, [contestId]);
+    if (applyFreezeCutoff && freezeTime) {
+      queryParams.push(freezeTime.toISOString());
+      subsQuery += ` AND s.created_at <= $2`;
+    }
+
+    subsQuery += ` ORDER BY s.created_at DESC;`;
+
+    const res = await db.query(subsQuery, queryParams);
     const submissions = res.rows;
 
     if (normFormat === 'json') {
