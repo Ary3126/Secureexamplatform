@@ -343,7 +343,9 @@ class ContestModel {
           end_time AS "endTime", 
           status, 
           created_by AS "createdBy",
-          is_rating_finalized AS "isRatingFinalized"
+          is_rating_finalized AS "isRatingFinalized",
+          leaderboard_freeze_enabled AS "leaderboardFreezeEnabled",
+          leaderboard_freeze_minutes AS "leaderboardFreezeMinutes"
         FROM contests
         WHERE id = $1
         FOR UPDATE;
@@ -462,10 +464,37 @@ class ContestModel {
           resourceType: 'contest',
           resourceId: updated.id,
           outcome: 'success',
-          metadata: { title: updated.title, isRated: updated.isRated, status: updated.status },
+          metadata: {
+            title: updated.title,
+            isRated: updated.isRated,
+            status: updated.status,
+            leaderboardFreezeEnabled: updated.leaderboardFreezeEnabled,
+            leaderboardFreezeMinutes: updated.leaderboardFreezeMinutes,
+          },
           client,
           req,
         });
+
+        // Audit freeze/unfreeze actions explicitly
+        if (
+          leaderboardFreezeEnabled !== undefined &&
+          Boolean(lockedContest.leaderboardFreezeEnabled) !== Boolean(updated.leaderboardFreezeEnabled)
+        ) {
+          const freezeAction = updated.leaderboardFreezeEnabled ? 'CONTEST_FREEZE_ENABLED' : 'CONTEST_FREEZE_DISABLED';
+          await AuditLogger.logAction({
+            actor,
+            action: freezeAction,
+            resourceType: 'contest',
+            resourceId: updated.id,
+            outcome: 'success',
+            metadata: {
+              freezeEnabled: updated.leaderboardFreezeEnabled,
+              freezeMinutes: updated.leaderboardFreezeMinutes,
+            },
+            client,
+            req,
+          });
+        }
       }
 
       await client.query('COMMIT');

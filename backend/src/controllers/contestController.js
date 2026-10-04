@@ -2547,6 +2547,21 @@ const getContestAdminLeaderboard = async (req, res, next) => {
       filterStatus: filterStatus || 'all',
     });
 
+    await AuditLogger.logAction({
+      actor: req.user,
+      action: 'ADMIN_LEADERBOARD_ACCESSED',
+      resourceType: 'contest',
+      resourceId: contestIdNum,
+      outcome: 'success',
+      metadata: {
+        page: page ? parseInt(page, 10) : 1,
+        freezeOverride: freezeOverride === 'true' || freezeOverride === true,
+        sortBy: sortBy || 'rank',
+        filterStatus: filterStatus || 'all',
+      },
+      req,
+    });
+
     return res.status(200).json(result);
   } catch (error) {
     next(error);
@@ -2666,6 +2681,18 @@ const getContestParticipantResultDetails = async (req, res, next) => {
       requestingUser: req.user,
       freezeOverride: effectiveFreezeOverride,
     });
+
+    if (isManager && targetUserId !== req.user.id) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'ADMIN_PARTICIPANT_RESULT_ACCESSED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'success',
+        metadata: { targetUserId },
+        req,
+      });
+    }
 
     return res.status(200).json(result);
   } catch (error) {

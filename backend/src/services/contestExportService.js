@@ -28,7 +28,8 @@ function escapeCsv(val) {
   let str = String(val);
 
   // Formula injection defense: prefix dangerous leading characters with a single quote
-  if (/^[=+\-@\t\r]/.test(str)) {
+  // Neutralizes leading formula triggers including whitespace-padded attempts
+  if (/^\s*[=+\-@\t\r]/.test(str)) {
     str = "'" + str;
   }
 
