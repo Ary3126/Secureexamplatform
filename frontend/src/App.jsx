@@ -15,7 +15,6 @@ import UserProfile from './components/UserProfile';
 import ContestLeaderboard from './components/ContestLeaderboard';
 import ContestResultsView from './components/ContestResultsView';
 import GlobalLeaderboard from './components/GlobalLeaderboard';
-import ProblemAuthoringStudio from './components/ProblemAuthoringStudio';
 import AdminPanel from './components/AdminPanel';
 import { ThemeProvider, useTheme } from './theme/ThemeContext';
 import { getStarterCode } from './starterTemplates';
@@ -77,7 +76,7 @@ function MainApp() {
     if (path.startsWith('/contests/') && (path.endsWith('/leaderboard') || path.endsWith('/standings')) || (path.startsWith('/leaderboard/') && path !== '/leaderboard/')) return 'leaderboard';
     if (path === '/workspace' || path === '/practice') return 'workspace';
     if (path === '/profile' || path.startsWith('/profile/') || path.startsWith('/u/')) return 'profile';
-    if (path === '/studio' || path === '/professor' || path === '/author' || path === '/authoring') return 'studio';
+    if (path === '/studio' || path === '/professor' || path === '/author' || path === '/authoring') return 'dashboard';
     if (path === '/admin' || path.startsWith('/admin/')) return 'admin';
     return 'landing';
   };
@@ -145,7 +144,7 @@ function MainApp() {
       else if (view === 'leaderboard') path = `/contests/${targetContestId || leaderboardContestId || '1'}/leaderboard`;
       else if (view === 'results') path = `/contests/${targetContestId || leaderboardContestId || '1'}/results`;
       else if (view === 'profile') path = targetUser ? `/u/${targetUser}` : '/profile';
-      else if (view === 'studio') path = '/studio';
+      else if (view === 'studio') path = '/dashboard';
       else if (view === 'admin') {
         const sec = targetAdminSection || adminSection;
         if (sec === 'users') path = '/admin/users';
@@ -888,49 +887,6 @@ function MainApp() {
         />
       )}
 
-      {/* 9.1 Problem Authoring Studio (Professor & Author Workspace) */}
-      {activeView === 'studio' && (
-        !currentUser ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: '24px' }}>
-            <h2 style={{ color: '#f8fafc', marginBottom: '8px' }}>Authentication Required</h2>
-            <p style={{ color: '#94a3b8', maxWidth: '400px', marginBottom: '20px' }}>
-              Please log in to access the Professor Authoring Studio.
-            </p>
-            <button
-              onClick={() => navigateTo('login')}
-              style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '10px 24px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}
-            >
-              Log In
-            </button>
-          </div>
-        ) : currentUser.role === 'student' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: '24px' }}>
-            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', padding: '32px', maxWidth: '480px' }}>
-              <h2 style={{ color: '#f87171', margin: '0 0 12px 0', fontSize: '1.25rem' }}>Access Denied</h2>
-              <p style={{ color: '#cbd5e1', fontSize: '0.9rem', lineHeight: '1.5', margin: '0 0 20px 0' }}>
-                The Professor Studio is restricted to faculty and examination authors. Students can solve problems and track skill progress from the Student Dashboard.
-              </p>
-              <button
-                onClick={() => navigateTo('dashboard')}
-                style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', fontWeight: '700', cursor: 'pointer' }}
-              >
-                Go to Student Dashboard
-              </button>
-            </div>
-          </div>
-        ) : (
-          <ProblemAuthoringStudio
-            token={token}
-            currentUser={currentUser}
-            initialSection={activeProfileTab || 'dashboard'}
-            initialOpenCreateContest={activeProfileTab === 'create_contest'}
-            onSelectProblem={(probId) => {
-              loadProblemDetails(probId);
-              navigateTo('workspace');
-            }}
-          />
-        )
-      )}
 
       {/* 9.2 Super Admin Console Access Guard */}
       {activeView === 'admin' && (
@@ -967,10 +923,10 @@ function MainApp() {
                 The Admin Console is strictly restricted to Super Administrators. Your role '{currentUser.role}' is not authorized to access this resource.
               </p>
               <button
-                onClick={() => navigateTo(currentUser.role === 'professor' ? 'studio' : 'dashboard')}
+                onClick={() => navigateTo('dashboard')}
                 className="admin-access-btn"
               >
-                {currentUser.role === 'professor' ? 'Go to Professor Studio' : 'Go to Student Dashboard'}
+                Go to Dashboard
               </button>
             </div>
           </div>

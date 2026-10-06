@@ -5,19 +5,19 @@ import { NAV_GROUPS, KEYBOARD_SHORTCUTS, SIDEBAR_STORAGE_KEY } from './src/confi
 describe('Navigation + UI/UX Refactor & AppShell Architecture Tests', () => {
   it('1. Sidebar NAV_GROUPS contains core and role-scoped navigation groups', () => {
     assert.strictEqual(Array.isArray(NAV_GROUPS), true, 'NAV_GROUPS should be an array');
-    assert.strictEqual(NAV_GROUPS.length, 5, 'Should have 5 navigation groups (main, compete, professor, admin, account)');
+    assert.strictEqual(NAV_GROUPS.length, 4, 'Should have 4 navigation groups (main, compete, admin, account)');
 
     const groupIds = NAV_GROUPS.map((g) => g.groupId);
-    assert.deepStrictEqual(groupIds, ['main', 'compete', 'professor', 'admin', 'account'], 'Group IDs must match');
+    assert.deepStrictEqual(groupIds, ['main', 'compete', 'admin', 'account'], 'Group IDs must match');
   });
 
-  it('2. Sidebar MAIN group contains Home, Problems, and Contests', () => {
+  it('2. Sidebar MAIN group contains Home and Problems', () => {
     const mainGroup = NAV_GROUPS.find((g) => g.groupId === 'main');
     assert.ok(mainGroup, 'MAIN group must exist');
-    assert.strictEqual(mainGroup.items.length, 3);
+    assert.strictEqual(mainGroup.items.length, 2);
 
     const itemIds = mainGroup.items.map((i) => i.id);
-    assert.deepStrictEqual(itemIds, ['landing', 'problems', 'contests']);
+    assert.deepStrictEqual(itemIds, ['landing', 'problems']);
   });
 
   it('3. Sidebar COMPETE group contains Dashboard, Leaderboard, Submissions', () => {
@@ -60,9 +60,9 @@ describe('Navigation + UI/UX Refactor & AppShell Architecture Tests', () => {
     const profItems = filterByRole(allItems, professorUser);
     const adminItems = filterByRole(allItems, adminUser);
 
-    assert.strictEqual(studentItems.length, 8, 'Student sees 8 items (main, compete, account)');
-    assert.strictEqual(profItems.length, 13, 'Professor sees 13 items (+5 faculty studio)');
-    assert.strictEqual(adminItems.length, 15, 'Super admin sees all 15 items (+5 faculty + 2 admin)');
+    assert.strictEqual(studentItems.length, 7, 'Student sees 7 items (main, compete, account)');
+    assert.strictEqual(profItems.length, 7, 'Professor sees 7 items (main, compete, account)');
+    assert.strictEqual(adminItems.length, 9, 'Super admin sees 9 items (main, compete, admin, account)');
   });
 
   it('6. LocalStorage persistence key is standardized', () => {

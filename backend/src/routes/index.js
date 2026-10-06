@@ -10,12 +10,14 @@ const submissionRoutes = require('./submissionRoutes');
 const leaderboardRoutes = require('./leaderboardRoutes');
 const skillRoutes = require('./skillRoutes');
 const adminRoutes = require('./adminRoutes');
+const testDataRoutes = require('./testDataRoutes');
 const rbacTestRoutes = require('./rbacTestRoutes');
 
 // Mount routes under /api
 router.use('/', healthRoutes);
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
+router.use('/admin/test-data', testDataRoutes);
 router.use('/admin', adminRoutes);
 router.use('/contests', contestRoutes);
 router.use('/problems', problemRoutes);

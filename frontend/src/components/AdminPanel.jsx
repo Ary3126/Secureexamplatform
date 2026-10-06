@@ -12,6 +12,7 @@ import AdminContestManagement from './admin/AdminContestManagement';
 import AdminReviewGovernance from './admin/AdminReviewGovernance';
 import AdminObservability from './admin/AdminObservability';
 import AdminAuditLogs from './admin/AdminAuditLogs';
+import AdminTestDataArchive from './admin/AdminTestDataArchive';
 import { parseAdminProblemSubroute, buildAdminProblemPath } from '../config/adminNavConfig';
 
 const ADMIN_SIDEBAR_STORAGE_KEY = 'securejudge_admin_sidebar_collapsed';
@@ -198,11 +199,15 @@ function ProblemsSection({ token, currentUser, onNavigateSubroute }) {
   }, []);
 
   const navigateSubroute = (newSubview, probId = null) => {
-    setSubview(newSubview);
-    setSelectedProblemId(probId);
-    const newPath = buildAdminProblemPath(newSubview, probId);
+    const isEditWithoutId = newSubview === 'edit' && (!probId || probId === 'null' || probId === 'undefined');
+    const actualSubview = isEditWithoutId ? 'list' : newSubview;
+    const actualProbId = actualSubview === 'edit' ? probId : null;
+
+    setSubview(actualSubview);
+    setSelectedProblemId(actualProbId);
+    const newPath = buildAdminProblemPath(actualSubview, actualProbId);
     if (typeof window !== 'undefined' && window.history && window.location.pathname !== newPath) {
-      window.history.pushState({ view: 'admin', adminSection: 'problems', subview: newSubview, problemId: probId }, '', newPath);
+      window.history.pushState({ view: 'admin', adminSection: 'problems', subview: actualSubview, problemId: actualProbId }, '', newPath);
     }
     if (onNavigateSubroute) {
       onNavigateSubroute('problems', newPath);
@@ -285,6 +290,40 @@ function ProblemsSection({ token, currentUser, onNavigateSubroute }) {
   }
 
   if (subview === 'edit') {
+    const validEditId = selectedProblemId && selectedProblemId !== 'null' && selectedProblemId !== 'undefined';
+    if (!validEditId) {
+      return (
+        <AdminProblemManagement
+          problems={problems}
+          totalProblems={totalProblems}
+          page={page}
+          limit={limit}
+          search={search}
+          difficultyFilter={difficultyFilter}
+          codingModeFilter={codingModeFilter}
+          statusFilter={statusFilter}
+          scopeFilter={scopeFilter}
+          loading={loading}
+          isProcessing={isProcessing}
+          onSearchChange={(val) => { setSearch(val); setPage(1); }}
+          onDifficultyFilterChange={(val) => { setDifficultyFilter(val); setPage(1); }}
+          onCodingModeFilterChange={(val) => { setCodingModeFilter(val); setPage(1); }}
+          onStatusFilterChange={(val) => { setStatusFilter(val); setPage(1); }}
+          onScopeFilterChange={(val) => { setScopeFilter(val); setPage(1); }}
+          onResetFilters={handleResetFilters}
+          onPageChange={setPage}
+          onNavigateToCreate={() => navigateSubroute('create')}
+          onNavigateToEdit={(prob) => {
+            const targetId = (typeof prob === 'object' && prob !== null) ? (prob.id || prob.problemId) : prob;
+            if (targetId && targetId !== 'null' && targetId !== 'undefined') {
+              navigateSubroute('edit', targetId);
+            }
+          }}
+          onArchiveProblem={handleArchiveProblem}
+        />
+      );
+    }
+
     return (
       <AdminProblemEditor
         mode="edit"
@@ -320,7 +359,12 @@ function ProblemsSection({ token, currentUser, onNavigateSubroute }) {
       onResetFilters={handleResetFilters}
       onPageChange={setPage}
       onNavigateToCreate={() => navigateSubroute('create')}
-      onNavigateToEdit={(prob) => navigateSubroute('edit', prob.id || prob.problemId)}
+      onNavigateToEdit={(prob) => {
+        const targetId = (typeof prob === 'object' && prob !== null) ? (prob.id || prob.problemId) : prob;
+        if (targetId && targetId !== 'null' && targetId !== 'undefined') {
+          navigateSubroute('edit', targetId);
+        }
+      }}
       onArchiveProblem={handleArchiveProblem}
     />
   );
@@ -802,6 +846,11 @@ export default function AdminPanel({
           {/* Audit Logs & Security Events — Phase 7.1: wired from orphaned AdminAuditLogs */}
           {activeSection === 'audit' && (
             <AuditSection token={token} />
+          )}
+
+          {/* Test Data Archive & Permanent Cleanup */}
+          {activeSection === 'test-data' && (
+            <AdminTestDataArchive token={token} currentUser={currentUser} />
           )}
 
           {/* System Observability — health, metrics, incidents */}

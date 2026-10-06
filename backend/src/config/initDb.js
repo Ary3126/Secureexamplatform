@@ -33,6 +33,9 @@ const initDb = async () => {
       CREATE INDEX IF NOT EXISTS idx_users_rating_status ON users(rating_status);
       CREATE INDEX IF NOT EXISTS idx_users_current_rating ON users(current_rating DESC);
       CREATE INDEX IF NOT EXISTS idx_users_rating_desc_id_asc ON users(current_rating DESC, id ASC);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_test_data BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS test_run_id VARCHAR(100) DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_users_test_data ON users(is_test_data, test_run_id);
 
       CREATE TABLE IF NOT EXISTS contests (
         id SERIAL PRIMARY KEY,
@@ -52,6 +55,13 @@ const initDb = async () => {
       ALTER TABLE contests ADD COLUMN IF NOT EXISTS leaderboard_freeze_enabled BOOLEAN NOT NULL DEFAULT false;
       ALTER TABLE contests ADD COLUMN IF NOT EXISTS leaderboard_freeze_minutes INTEGER NOT NULL DEFAULT 60;
       ALTER TABLE contests ADD COLUMN IF NOT EXISTS final_results_snapshot JSONB DEFAULT NULL;
+      ALTER TABLE contests ADD COLUMN IF NOT EXISTS is_test_data BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE contests ADD COLUMN IF NOT EXISTS test_run_id VARCHAR(100) DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_contests_test_data ON contests(is_test_data, test_run_id);
+
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS is_test_data BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS test_run_id VARCHAR(100) DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_submissions_test_data ON submissions(is_test_data, test_run_id);
 
       -- Ensure submissions.contest_id is nullable for public practice submissions
       DO $$
@@ -204,6 +214,9 @@ const initDb = async () => {
       ALTER TABLE problems ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
       ALTER TABLE problems ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT false;
       ALTER TABLE problems ADD COLUMN IF NOT EXISTS published_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE problems ADD COLUMN IF NOT EXISTS is_test_data BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE problems ADD COLUMN IF NOT EXISTS test_run_id VARCHAR(100) DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_problems_test_data ON problems(is_test_data, test_run_id);
       ALTER TABLE submissions ADD COLUMN IF NOT EXISTS problem_version INTEGER NOT NULL DEFAULT 1;
 
       CREATE TABLE IF NOT EXISTS problem_versions (
@@ -370,6 +383,85 @@ const initDb = async () => {
          OR title ILIKE '%Private Exam Problem Secret%'
          OR title ILIKE '%Public Algorithmic Challenge%')
         AND created_at < NOW() - INTERVAL '10 seconds';
+
+      -- 2d. Safely tag legacy automated test fixture records so they are identifiable and cleanly removable via Admin Archive
+      UPDATE users 
+      SET is_test_data = true, 
+          test_run_id = COALESCE(substring(username from '\\d{10,13}'), 'legacy_test_run')
+      WHERE is_test_data = false
+        AND id NOT IN (2, 3, 3833, 4339)
+        AND username NOT IN ('platform_admin', 'Ary', 'professor_seed', 'student_seed', 'admin')
+        AND email NOT IN ('admin@securejudge.io', 'patelary9054@gmail.com', 'professor@university.edu', 'student@university.edu')
+        AND (
+          username ~ '_\\d{10,13}$' 
+          OR username ~ '^[a-z]+_\\d{5,}$'
+          OR username ~ '^test_' 
+          OR username ~ '^prof_sec_' 
+          OR username ~ '^student\\d*_' 
+          OR username ~ '^stud_' 
+          OR username ~ '^admin_' 
+          OR username ~ '^super_' 
+          OR username ~ '^cadmin_' 
+          OR username ~ '^sadmin_' 
+          OR username ~ '^p7582_' 
+          OR username ~ '^p8_' 
+          OR username ~ '^p9_' 
+          OR username ~ '^ca_bulk_' 
+          OR username ~ '^sa_bulk_' 
+          OR email LIKE '%@test.com' 
+          OR email LIKE '%@test.edu' 
+          OR email LIKE '%@examforge.test'
+        );
+
+      UPDATE contests
+      SET is_test_data = true,
+          test_run_id = COALESCE(substring(title from '\\d{10,13}'), 'legacy_test_run')
+      WHERE is_test_data = false
+        AND (
+          title ~ '\\d{10,13}'
+          OR title ILIKE '%Test Contest%'
+          OR title ILIKE '%Phase 7.5.8%'
+          OR title ILIKE '%Phase 5.8.2%'
+          OR title ILIKE '%Skill Test Contest%'
+          OR title ILIKE '%ACID Finalization%'
+          OR title ILIKE '%Unrated Contest Audit%'
+          OR title ILIKE '%Audit DB Contest%'
+          OR created_by IN (SELECT id FROM users WHERE is_test_data = true)
+        );
+
+      UPDATE problems
+      SET is_test_data = true,
+          test_run_id = COALESCE(substring(title from '\\d{10,13}'), 'legacy_test_run')
+      WHERE is_test_data = false
+        AND id != 1914
+        AND title NOT ILIKE '%You are given a sorted array%'
+        AND (
+          title ~ '\\d{10,13}'
+          OR title ILIKE '%Sec Problem%'
+          OR title ILIKE '%Reg Prob%'
+          OR title ILIKE '%Final Prob%'
+          OR title ILIKE '%Problem Security%'
+          OR title ILIKE '%Problem Export%'
+          OR title ILIKE '%Anti-Hardcoding Problem%'
+          OR title ILIKE '%Problem 57%'
+          OR title ILIKE '%Problem 58%'
+          OR title ILIKE '%Hard Problem 57%'
+          OR title ILIKE '%Knapsack 57%'
+          OR title ILIKE '%Two Sum 57%'
+          OR title ILIKE '%Private Exam Problem Secret%'
+          OR title ILIKE '%Public Algorithmic Challenge%'
+          OR created_by IN (SELECT id FROM users WHERE is_test_data = true)
+        );
+
+      UPDATE submissions
+      SET is_test_data = true,
+          test_run_id = 'legacy_test_run'
+      WHERE is_test_data = false
+        AND (
+          user_id IN (SELECT id FROM users WHERE is_test_data = true)
+          OR contest_id IN (SELECT id FROM contests WHERE is_test_data = true)
+          OR problem_id IN (SELECT id FROM problems WHERE is_test_data = true)
+        );
     `);
 
     // 3. Seed canonical platform topics (Phase 5.7.1)

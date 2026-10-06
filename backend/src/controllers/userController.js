@@ -315,7 +315,20 @@ const getStudentDashboard = async (req, res, next) => {
 const getUserRating = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const targetUserId = id === 'me' ? req.user.id : parseInt(id, 10);
+    let targetUserId;
+    if (id === 'me') {
+      targetUserId = req.user.id;
+    } else {
+      const parsed = parseInt(id, 10);
+      if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== String(id).trim()) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Invalid user ID format. ID must be a positive integer or "me".',
+        });
+      }
+      targetUserId = parsed;
+    }
 
     const [userSummary, rank] = await Promise.all([
       RatingModel.getUserRatingSummary(targetUserId),
@@ -352,7 +365,29 @@ const getUserRating = async (req, res, next) => {
 const getUserRatingHistory = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const targetUserId = id === 'me' ? req.user.id : parseInt(id, 10);
+    let targetUserId;
+    if (id === 'me') {
+      targetUserId = req.user.id;
+    } else {
+      const parsed = parseInt(id, 10);
+      if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== String(id).trim()) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Invalid user ID format. ID must be a positive integer or "me".',
+        });
+      }
+      targetUserId = parsed;
+    }
+
+    const userSummary = await RatingModel.getUserRatingSummary(targetUserId);
+    if (!userSummary) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `User '${id}' not found`,
+      });
+    }
 
     const history = await RatingModel.getRatingHistoryByUser(targetUserId);
 

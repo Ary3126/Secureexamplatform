@@ -17,13 +17,108 @@ class RatingService {
    * @returns {Array<Object>} List of calculated rating updates
    */
   static calculateRatingChanges(participants) {
-    const N = participants.length;
+    if (!Array.isArray(participants) || participants.length === 0) return [];
+
+    // 1. Sanitize, type-coerce, and validate participant records
+    const seenUserIds = new Set();
+    const sanitized = [];
+
+    for (const raw of participants) {
+      if (!raw || typeof raw !== 'object') continue;
+
+      const rawId = raw.userId !== undefined ? raw.userId : raw.id;
+      const parsedId = Number(rawId);
+      if (!Number.isInteger(parsedId) || parsedId <= 0) continue;
+
+      // Deduplicate by userId
+      if (seenUserIds.has(parsedId)) continue;
+      seenUserIds.add(parsedId);
+
+      // Sanitize numerical ratings to prevent string concatenation or NaN poisoning
+      const rawCurrent = Number(raw.currentRating);
+      const currentRating = Number.isFinite(rawCurrent)
+        ? Math.max(RATING_CONFIG.MIN_RATING, Math.round(rawCurrent))
+        : RATING_CONFIG.INITIAL_RATING;
+
+      const rawHighest = Number(raw.highestRating);
+      const highestRating = Number.isFinite(rawHighest)
+        ? Math.max(currentRating, Math.round(rawHighest))
+        : Math.max(currentRating, RATING_CONFIG.INITIAL_RATING);
+
+      const rawCount = Number(raw.ratedContestCount);
+      const ratedContestCount =
+        Number.isFinite(rawCount) && rawCount >= 0 ? Math.floor(rawCount) : 0;
+
+      const rawRank = Number(raw.rank);
+      const rank = Number.isFinite(rawRank) && rawRank > 0 ? Math.floor(rawRank) : null;
+
+      const totalScore = Number.isFinite(Number(raw.totalScore)) ? Number(raw.totalScore) : 0;
+      const totalPenaltyMinutes = Number.isFinite(Number(raw.totalPenaltyMinutes))
+        ? Number(raw.totalPenaltyMinutes)
+        : 0;
+      const totalTimeMs = Number.isFinite(Number(raw.totalTimeMs)) ? Number(raw.totalTimeMs) : 0;
+
+      sanitized.push({
+        userId: parsedId,
+        username: raw.username || `user_${parsedId}`,
+        currentRating,
+        highestRating,
+        ratedContestCount,
+        ratingStatus:
+          raw.ratingStatus === 'rated' ||
+          ratedContestCount >= RATING_CONFIG.PROVISIONAL_CONTEST_THRESHOLD
+            ? 'rated'
+            : 'provisional',
+        rank,
+        totalScore,
+        totalPenaltyMinutes,
+        totalTimeMs,
+      });
+    }
+
+    const N = sanitized.length;
     if (N === 0) return [];
 
-    // Single participant case: no rating delta possible
+    // 2. Rank Assignment Fallback: If any participant has missing rank, compute standard competition ranks
+    const anyMissingRank = sanitized.some((p) => p.rank === null);
+    if (anyMissingRank) {
+      sanitized.sort((a, b) => {
+        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+        if (a.totalPenaltyMinutes !== b.totalPenaltyMinutes)
+          return a.totalPenaltyMinutes - b.totalPenaltyMinutes;
+        if (a.totalTimeMs !== b.totalTimeMs) return a.totalTimeMs - b.totalTimeMs;
+        return a.userId - b.userId;
+      });
+
+      for (let i = 0; i < N; i++) {
+        if (i > 0) {
+          const prev = sanitized[i - 1];
+          const curr = sanitized[i];
+          if (
+            curr.totalScore === prev.totalScore &&
+            curr.totalPenaltyMinutes === prev.totalPenaltyMinutes &&
+            curr.totalTimeMs === prev.totalTimeMs
+          ) {
+            curr.rank = prev.rank;
+          } else {
+            curr.rank = i + 1;
+          }
+        } else {
+          sanitized[0].rank = 1;
+        }
+      }
+    } else {
+      // Deterministically sort by (rank ASC, userId ASC) for reproducible pairwise floating-point summation
+      sanitized.sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        return a.userId - b.userId;
+      });
+    }
+
+    // 3. Single participant edge case: no rating delta possible
     if (N === 1) {
-      const p = participants[0];
-      const newRatedCount = (p.ratedContestCount || 0) + 1;
+      const p = sanitized[0];
+      const newRatedCount = p.ratedContestCount + 1;
       const newStatus =
         newRatedCount >= RATING_CONFIG.PROVISIONAL_CONTEST_THRESHOLD ? 'rated' : 'provisional';
       return [
@@ -33,10 +128,10 @@ class RatingService {
           previousRating: p.currentRating,
           ratingChange: 0,
           newRating: p.currentRating,
-          newHighestRating: Math.max(p.highestRating || p.currentRating, p.currentRating),
+          newHighestRating: p.highestRating,
           newRatingStatus: newStatus,
           newRatedContestCount: newRatedCount,
-          rank: 1,
+          rank: p.rank || 1,
           participantCount: 1,
           performanceRating: p.currentRating,
         },
@@ -45,14 +140,15 @@ class RatingService {
 
     const results = [];
 
+    // 4. Pairwise multi-participant Elo calculation
     for (let i = 0; i < N; i++) {
-      const p = participants[i];
+      const p = sanitized[i];
       let actualScoreSum = 0;
       let expectedScoreSum = 0;
 
       for (let j = 0; j < N; j++) {
         if (i === j) continue;
-        const opponent = participants[j];
+        const opponent = sanitized[j];
 
         // 1. Expected score against opponent j: E_ij = 1 / (1 + 10^((R_j - R_i) / 400))
         const exponent = (opponent.currentRating - p.currentRating) / 400.0;
@@ -71,7 +167,7 @@ class RatingService {
 
       // 3. Determine K-Factor: Provisional vs Rated
       const isProvisional =
-        (p.ratedContestCount || 0) < RATING_CONFIG.PROVISIONAL_CONTEST_THRESHOLD;
+        p.ratedContestCount < RATING_CONFIG.PROVISIONAL_CONTEST_THRESHOLD;
       const kFactor = isProvisional
         ? RATING_CONFIG.PROVISIONAL_K_FACTOR
         : RATING_CONFIG.RATED_K_FACTOR;
@@ -80,15 +176,17 @@ class RatingService {
       const rawDelta = (kFactor / (N - 1)) * (actualScoreSum - expectedScoreSum);
       const ratingChange = Math.round(rawDelta);
 
-      // 5. Calculate new rating and highest rating
+      // 5. Calculate new rating and highest rating with floor enforcement
       const newRating = Math.max(RATING_CONFIG.MIN_RATING, p.currentRating + ratingChange);
-      const newHighestRating = Math.max(p.highestRating || p.currentRating, newRating);
-      const newRatedCount = (p.ratedContestCount || 0) + 1;
+      const newHighestRating = Math.max(p.highestRating, newRating);
+      const newRatedCount = p.ratedContestCount + 1;
       const newStatus =
         newRatedCount >= RATING_CONFIG.PROVISIONAL_CONTEST_THRESHOLD ? 'rated' : 'provisional';
 
       // Performance rating approximation
-      const performanceRating = Math.round(p.currentRating + ((actualScoreSum - (N - 1) / 2) / (N - 1)) * 400);
+      const performanceRating = Math.round(
+        p.currentRating + ((actualScoreSum - (N - 1) / 2) / (N - 1)) * 400
+      );
 
       results.push({
         userId: p.userId,
@@ -109,17 +207,18 @@ class RatingService {
   }
 
   /**
-   * Calculate final contest standings for a contest
+   * Calculate authoritative final contest standings for a contest across all participants
    */
   static async computeContestStandings(contestId, clientOrDb = null) {
     const StandingsService = require('./standingsService');
     const result = await StandingsService.computeContestStandings({
       contestId,
-      limit: 10000,
+      isExport: true,
+      limit: 'all',
       freezeOverride: true,
       clientOrDb,
     });
-    return result.standings;
+    return result._allParticipants || result.standings || [];
   }
 
   /**

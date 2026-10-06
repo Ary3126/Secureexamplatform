@@ -13,6 +13,17 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
         secure: false,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            if (err && (err.code === 'ECONNREFUSED' || (err.message && err.message.includes('ECONNREFUSED')))) {
+              console.warn('[Vite Proxy] Backend not reachable at http://localhost:5000. Ensure backend is running.');
+            }
+            if (res && !res.headersSent && typeof res.writeHead === 'function') {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Backend server unavailable. Please make sure the backend is running.' }));
+            }
+          });
+        },
       },
     },
   },

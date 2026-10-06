@@ -8,6 +8,7 @@ import {
   Inbox,
   FileText,
   Server,
+  Trash2,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -23,6 +24,7 @@ const ICON_MAP = {
   Inbox,
   FileText,
   Server,
+  Trash2,
 };
 
 export default function AdminSidebar({

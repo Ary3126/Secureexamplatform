@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
     rating_status VARCHAR(20) NOT NULL DEFAULT 'provisional' CHECK (rating_status IN ('provisional', 'rated')),
     rated_contest_count INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    is_test_data BOOLEAN NOT NULL DEFAULT false,
+    test_run_id VARCHAR(100) DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -28,6 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_users_institution ON users(institution);
 CREATE INDEX IF NOT EXISTS idx_users_rating_status ON users(rating_status);
 CREATE INDEX IF NOT EXISTS idx_users_current_rating ON users(current_rating DESC);
 CREATE INDEX IF NOT EXISTS idx_users_rating_desc_id_asc ON users(current_rating DESC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_users_test_data ON users(is_test_data, test_run_id);
 
 -- 2. CONTESTS TABLE (Phase 3 & 5.4)
 CREATE TABLE IF NOT EXISTS contests (
@@ -44,6 +47,8 @@ CREATE TABLE IF NOT EXISTS contests (
     leaderboard_freeze_enabled BOOLEAN NOT NULL DEFAULT false,
     leaderboard_freeze_minutes INTEGER NOT NULL DEFAULT 60,
     final_results_snapshot JSONB DEFAULT NULL,
+    is_test_data BOOLEAN NOT NULL DEFAULT false,
+    test_run_id VARCHAR(100) DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT check_contest_times CHECK (end_time > start_time)
@@ -52,6 +57,7 @@ CREATE TABLE IF NOT EXISTS contests (
 CREATE INDEX IF NOT EXISTS idx_contests_created_by ON contests(created_by);
 CREATE INDEX IF NOT EXISTS idx_contests_status ON contests(status);
 CREATE INDEX IF NOT EXISTS idx_contests_times ON contests(start_time, end_time);
+CREATE INDEX IF NOT EXISTS idx_contests_test_data ON contests(is_test_data, test_run_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_contest_user_status ON submissions(contest_id, user_id, status, is_sample_run);
 CREATE INDEX IF NOT EXISTS idx_submissions_contest_standings ON submissions(contest_id, is_sample_run, created_at ASC);
 
@@ -76,6 +82,8 @@ CREATE TABLE IF NOT EXISTS problems (
     approved_at TIMESTAMP WITH TIME ZONE,
     scheduled_publish_at TIMESTAMP WITH TIME ZONE,
     scheduled_publish_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    is_test_data BOOLEAN NOT NULL DEFAULT false,
+    test_run_id VARCHAR(100) DEFAULT NULL,
     created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -89,6 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_problems_version ON problems(version);
 CREATE INDEX IF NOT EXISTS idx_problems_is_published ON problems(is_published);
 CREATE INDEX IF NOT EXISTS idx_problems_review_status ON problems(review_status);
 CREATE INDEX IF NOT EXISTS idx_problems_scheduled_publish ON problems(scheduled_publish_at) WHERE scheduled_publish_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_problems_test_data ON problems(is_test_data, test_run_id);
 
 -- 3b. PROBLEM_VERSIONS TABLE (Phase 5.9.5 Problem Versioning & Historical Judging Integrity & 5.9.8 Lifecycle)
 CREATE TABLE IF NOT EXISTS problem_versions (
@@ -223,6 +232,8 @@ CREATE TABLE IF NOT EXISTS submissions (
     test_cases_total INTEGER DEFAULT 0,
     validation_summary JSONB,
     problem_version INTEGER NOT NULL DEFAULT 1,
+    is_test_data BOOLEAN NOT NULL DEFAULT false,
+    test_run_id VARCHAR(100) DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -234,6 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_submissions_problem_version ON submissions(proble
 CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
 CREATE INDEX IF NOT EXISTS idx_submissions_is_sample_run ON submissions(is_sample_run);
 CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at);
+CREATE INDEX IF NOT EXISTS idx_submissions_test_data ON submissions(is_test_data, test_run_id);
 
 -- Phase 5.8.6: Targeted partial covering index for performance statistics, percentiles, and distribution histograms
 CREATE INDEX IF NOT EXISTS idx_submissions_perf_analytics 

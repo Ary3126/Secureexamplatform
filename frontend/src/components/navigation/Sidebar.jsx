@@ -83,21 +83,6 @@ export default function Sidebar({
     if (item.id === 'landing') {
       return activeView === 'landing';
     }
-    if (item.id === 'prof_studio') {
-      return activeView === 'studio' && (!activeProfileTab || activeProfileTab === 'dashboard');
-    }
-    if (item.id === 'prof_create_contest') {
-      return activeView === 'studio' && activeProfileTab === 'create_contest';
-    }
-    if (item.id === 'prof_manage_contests') {
-      return activeView === 'studio' && activeProfileTab === 'contests';
-    }
-    if (item.id === 'prof_manage_problems') {
-      return activeView === 'studio' && activeProfileTab === 'problems';
-    }
-    if (item.id === 'prof_reviews') {
-      return activeView === 'studio' && activeProfileTab === 'reviews';
-    }
     if (item.id === 'admin_observability') {
       return activeView === 'admin' && activeProfileTab === 'observability';
     }

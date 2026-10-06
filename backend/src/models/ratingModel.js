@@ -58,6 +58,9 @@ class RatingModel {
    * Retrieve rating history for a specific user ordered chronologically
    */
   static async getRatingHistoryByUser(userId) {
+    const numId = Number(userId);
+    if (!Number.isInteger(numId) || numId <= 0) return [];
+
     const text = `
       SELECT 
         rh.id,
@@ -77,7 +80,7 @@ class RatingModel {
       WHERE rh.user_id = $1
       ORDER BY rh.created_at ASC, rh.id ASC;
     `;
-    const res = await db.query(text, [userId]);
+    const res = await db.query(text, [numId]);
     return res.rows;
   }
 
@@ -85,6 +88,9 @@ class RatingModel {
    * Get rating summary for a user
    */
   static async getUserRatingSummary(userId) {
+    const numId = Number(userId);
+    if (!Number.isInteger(numId) || numId <= 0) return null;
+
     const text = `
       SELECT 
         id,
@@ -97,7 +103,7 @@ class RatingModel {
       FROM users
       WHERE id = $1;
     `;
-    const res = await db.query(text, [userId]);
+    const res = await db.query(text, [numId]);
     return res.rows[0] || null;
   }
 
@@ -105,9 +111,12 @@ class RatingModel {
    * Calculate competitive global rank among students with deterministic tie-breaker
    */
   static async getGlobalRank(userId) {
+    const numId = Number(userId);
+    if (!Number.isInteger(numId) || numId <= 0) return null;
+
     const userRes = await db.query(
       `SELECT current_rating, id FROM users WHERE id = $1 AND role = 'student'`,
-      [userId]
+      [numId]
     );
 
     if (!userRes.rows[0]) return null;

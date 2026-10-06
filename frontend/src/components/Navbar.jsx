@@ -149,16 +149,6 @@ export default function Navbar({
             </button>
           )}
 
-          {currentUser && (currentUser.role === 'professor' || currentUser.role === 'contest_admin' || currentUser.role === 'super_admin') && (
-            <button
-              type="button"
-              className={`nav-link-btn ${activeView === 'studio' ? 'active' : ''}`}
-              onClick={() => handleNavClick('studio')}
-            >
-              <BookOpen className="w-4 h-4" color="#38bdf8" />
-              <span>Professor Studio</span>
-            </button>
-          )}
 
           {currentUser && (currentUser.role === 'super_admin' || currentUser.role === 'contest_admin') && (
             <button
@@ -351,16 +341,6 @@ export default function Navbar({
                 </button>
               )}
 
-              {currentUser && (currentUser.role === 'professor' || currentUser.role === 'contest_admin' || currentUser.role === 'super_admin') && (
-                <button
-                  type="button"
-                  className={`mobile-nav-item ${activeView === 'studio' ? 'active' : ''}`}
-                  onClick={() => handleNavClick('studio')}
-                >
-                  <BookOpen className="w-5 h-5" color="#38bdf8" />
-                  <span>Professor Studio</span>
-                </button>
-              )}
 
               {currentUser && (currentUser.role === 'super_admin' || currentUser.role === 'contest_admin') && (
                 <button

@@ -22,7 +22,7 @@ describe('Admin Panel Phase 7.1: Foundation & Shell Architecture Tests', () => {
   // 2. Admin Sidebar Items Verification (Phase 7.1: 7 sections including Audit Logs)
   it('2. AdminSidebar defines all 7 Phase 7.1 sections with correct paths and icons', () => {
     assert.ok(Array.isArray(ADMIN_NAV_ITEMS), 'ADMIN_NAV_ITEMS must be an array');
-    assert.strictEqual(ADMIN_NAV_ITEMS.length, 7, 'Must contain exactly 7 navigation items in Phase 7.1');
+    assert.strictEqual(ADMIN_NAV_ITEMS.length, 8, 'Must contain exactly 8 navigation items');
 
     const expected = [
       { id: 'dashboard', label: 'Dashboard', path: '/admin', iconName: 'LayoutDashboard' },
@@ -31,6 +31,7 @@ describe('Admin Panel Phase 7.1: Foundation & Shell Architecture Tests', () => {
       { id: 'contests', label: 'Contests', path: '/admin/contests', iconName: 'Trophy' },
       { id: 'reviews', label: 'Reviews', path: '/admin/reviews', iconName: 'Inbox' },
       { id: 'audit', label: 'Audit Logs', path: '/admin/audit', iconName: 'FileText' },
+      { id: 'test-data', label: 'Test Data Archive', path: '/admin/test-data', iconName: 'Trash2' },
       { id: 'system', label: 'System', path: '/admin/system', iconName: 'Server' },
     ];
 

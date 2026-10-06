@@ -44,6 +44,12 @@ export const ADMIN_NAV_ITEMS = [
     path: '/admin/audit',
   },
   {
+    id: 'test-data',
+    label: 'Test Data Archive',
+    iconName: 'Trash2',
+    path: '/admin/test-data',
+  },
+  {
     id: 'system',
     label: 'System',
     iconName: 'Server',
@@ -58,6 +64,7 @@ export const ADMIN_SECTION_LABELS = {
   contests: 'Contests & Exams',
   reviews: 'Problem Reviews & SLAs',
   audit: 'Audit Logs & Security Events',
+  'test-data': 'Test Data Archive & Permanent Cleanup',
   system: 'System & Observability',
 };
 
@@ -68,6 +75,7 @@ export const parseAdminSection = (pathname) => {
   if (cleanPath === '/admin/contests' || cleanPath.startsWith('/admin/contests/')) return 'contests';
   if (cleanPath === '/admin/reviews' || cleanPath.startsWith('/admin/reviews/')) return 'reviews';
   if (cleanPath === '/admin/audit' || cleanPath.startsWith('/admin/audit/')) return 'audit';
+  if (cleanPath === '/admin/test-data' || cleanPath.startsWith('/admin/test-data/')) return 'test-data';
   if (cleanPath === '/admin/system' || cleanPath.startsWith('/admin/system/')) return 'system';
   return 'dashboard';
 };
@@ -84,6 +92,9 @@ export const parseAdminProblemSubroute = (pathname) => {
   const editMatch = cleanPath.match(/^\/admin\/problems\/([^/]+)\/edit\/?$/);
   if (editMatch && editMatch[1] !== 'new') {
     const rawId = editMatch[1];
+    if (rawId === 'null' || rawId === 'undefined') {
+      return { subview: 'list', problemId: null };
+    }
     const parsed = /^\d+$/.test(rawId) ? parseInt(rawId, 10) : rawId;
     return { subview: 'edit', problemId: parsed };
   }
@@ -95,7 +106,9 @@ export const parseAdminProblemSubroute = (pathname) => {
  */
 export const buildAdminProblemPath = (subview = 'list', problemId = null) => {
   if (subview === 'create') return '/admin/problems/new';
-  if (subview === 'edit' && problemId) return `/admin/problems/${problemId}/edit`;
+  if (subview === 'edit' && problemId && problemId !== 'null' && problemId !== 'undefined') {
+    return `/admin/problems/${problemId}/edit`;
+  }
   return '/admin/problems';
 };
 

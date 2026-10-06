@@ -90,9 +90,6 @@ export default function TopBar({
       } else if (currentUser) {
         crumbs.push({ label: `@${currentUser.username}`, active: true });
       }
-    } else if (activeView === 'studio') {
-      crumbs.push({ label: 'Professor Studio', view: 'studio' });
-      crumbs.push({ label: 'Academic & Contest Authoring', active: true });
     } else if (activeView === 'admin') {
       crumbs.push({ label: 'Platform Governor', view: 'admin' });
       crumbs.push({ label: 'Administration Console', active: true });

@@ -75,7 +75,7 @@ export function getActionBadge(action) {
  */
 export default function AdminDashboard({
   token,
-  onNavigateSection = () => {},
+  onNavigateSection = () => { },
 }) {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -185,14 +185,7 @@ export default function AdminDashboard({
           <Code2 size={14} />
           <span>Problem Bank</span>
         </button>
-        <button
-          onClick={() => onNavigateSection('contests', '/admin/contests')}
-          className="admin-quick-action-btn"
-          title="Inspect Contests & Examination Schedules"
-        >
-          <Trophy size={14} />
-          <span>Contests & Exams</span>
-        </button>
+
         <button
           onClick={() => onNavigateSection('reviews', '/admin/reviews')}
           className="admin-quick-action-btn"
@@ -347,10 +340,10 @@ export default function AdminDashboard({
                     runtime === 'running'
                       ? 'badge-running'
                       : runtime === 'upcoming'
-                      ? 'badge-upcoming'
-                      : runtime === 'ended'
-                      ? 'badge-ended'
-                      : 'badge-draft';
+                        ? 'badge-upcoming'
+                        : runtime === 'ended'
+                          ? 'badge-ended'
+                          : 'badge-draft';
 
                   return (
                     <div key={c.id} className="admin-contest-item">
@@ -633,13 +626,12 @@ export default function AdminDashboard({
               <div className="admin-health-item">
                 <div className="admin-health-subsys">
                   <span
-                    className={`health-dot ${
-                      system.judgeStatus === 'HEALTHY'
+                    className={`health-dot ${system.judgeStatus === 'HEALTHY'
                         ? 'dot-healthy'
                         : system.judgeStatus === 'DEGRADED'
-                        ? 'dot-degraded'
-                        : 'dot-unhealthy'
-                    }`}
+                          ? 'dot-degraded'
+                          : 'dot-unhealthy'
+                      }`}
                   />
                   <div>
                     <div className="admin-health-name">Judge Sandbox & Compilers</div>
@@ -655,8 +647,8 @@ export default function AdminDashboard({
                       system.judgeStatus === 'HEALTHY'
                         ? '#34d399'
                         : system.judgeStatus === 'DEGRADED'
-                        ? '#fbbf24'
-                        : '#f87171',
+                          ? '#fbbf24'
+                          : '#f87171',
                   }}
                 >
                   {system.judgeStatus || 'Healthy'}
