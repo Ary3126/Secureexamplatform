@@ -55,18 +55,23 @@ class RatingModel {
   }
 
   /**
-   * Retrieve rating history for a specific user ordered chronologically
+   * Retrieve rating history for a specific user with optional pagination and ordering
    */
-  static async getRatingHistoryByUser(userId) {
+  static async getRatingHistoryByUser(userId, options = {}) {
     const numId = Number(userId);
     if (!Number.isInteger(numId) || numId <= 0) return [];
 
-    const text = `
+    const orderDir = (options.order || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const limit = options.limit ? Math.max(1, Math.min(100, parseInt(options.limit, 10))) : null;
+    const offset = options.offset !== undefined && options.offset !== null ? Math.max(0, parseInt(options.offset, 10)) : null;
+
+    let text = `
       SELECT 
         rh.id,
         rh.user_id AS "userId",
         rh.contest_id AS "contestId",
         c.title AS "contestTitle",
+        c.ratings_finalized_at AS "finalizedAt",
         rh.previous_rating AS "previousRating",
         rh.rating_change AS "ratingChange",
         rh.new_rating AS "newRating",
@@ -78,10 +83,33 @@ class RatingModel {
       FROM rating_history rh
       JOIN contests c ON rh.contest_id = c.id
       WHERE rh.user_id = $1
-      ORDER BY rh.created_at ASC, rh.id ASC;
+      ORDER BY rh.created_at ${orderDir}, rh.id ${orderDir}
     `;
-    const res = await db.query(text, [numId]);
+
+    const params = [numId];
+    if (limit !== null) {
+      params.push(limit);
+      text += ` LIMIT $${params.length}`;
+      if (offset !== null) {
+        params.push(offset);
+        text += ` OFFSET $${params.length}`;
+      }
+    }
+
+    const res = await db.query(text, params);
     return res.rows;
+  }
+
+  /**
+   * Count total rating history records for a user
+   */
+  static async countRatingHistoryByUser(userId) {
+    const numId = Number(userId);
+    if (!Number.isInteger(numId) || numId <= 0) return 0;
+
+    const text = `SELECT COUNT(*)::int AS count FROM rating_history WHERE user_id = $1;`;
+    const res = await db.query(text, [numId]);
+    return res.rows[0]?.count || 0;
   }
 
   /**
@@ -95,11 +123,13 @@ class RatingModel {
       SELECT 
         id,
         username,
+        role,
         full_name AS "fullName",
         current_rating AS "currentRating",
         highest_rating AS "highestRating",
         rating_status AS "ratingStatus",
-        rated_contest_count AS "ratedContestCount"
+        rated_contest_count AS "ratedContestCount",
+        is_active AS "isActive"
       FROM users
       WHERE id = $1;
     `;

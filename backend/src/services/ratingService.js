@@ -3,7 +3,7 @@ const ContestModel = require('../models/contestModel');
 const RatingModel = require('../models/ratingModel');
 const RATING_CONFIG = require('../config/ratingConfig');
 const AuditLogger = require('./auditLogger');
-const { getContestRuntimeState } = require('./contestService');
+const { getContestRuntimeState, canManageResource } = require('./contestService');
 
 /**
  * Competitive Rating Service - Multi-participant Elo rating calculation, rank determination, and transactional finalization
@@ -58,6 +58,14 @@ class RatingService {
         : 0;
       const totalTimeMs = Number.isFinite(Number(raw.totalTimeMs)) ? Number(raw.totalTimeMs) : 0;
 
+      let lastAcceptedAtMs = null;
+      if (Number.isFinite(Number(raw.lastAcceptedAtMs))) {
+        lastAcceptedAtMs = Number(raw.lastAcceptedAtMs);
+      } else if (raw.lastAcceptedAt) {
+        const parsed = new Date(raw.lastAcceptedAt).getTime();
+        if (Number.isFinite(parsed)) lastAcceptedAtMs = parsed;
+      }
+
       sanitized.push({
         userId: parsedId,
         username: raw.username || `user_${parsedId}`,
@@ -73,6 +81,7 @@ class RatingService {
         totalScore,
         totalPenaltyMinutes,
         totalTimeMs,
+        lastAcceptedAtMs,
       });
     }
 
@@ -86,6 +95,14 @@ class RatingService {
         if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
         if (a.totalPenaltyMinutes !== b.totalPenaltyMinutes)
           return a.totalPenaltyMinutes - b.totalPenaltyMinutes;
+        if (a.lastAcceptedAtMs && b.lastAcceptedAtMs) {
+          const timeDiff = a.lastAcceptedAtMs - b.lastAcceptedAtMs;
+          if (timeDiff !== 0) return timeDiff;
+        } else if (a.lastAcceptedAtMs && !b.lastAcceptedAtMs) {
+          return -1;
+        } else if (!a.lastAcceptedAtMs && b.lastAcceptedAtMs) {
+          return 1;
+        }
         if (a.totalTimeMs !== b.totalTimeMs) return a.totalTimeMs - b.totalTimeMs;
         return a.userId - b.userId;
       });
@@ -97,6 +114,7 @@ class RatingService {
           if (
             curr.totalScore === prev.totalScore &&
             curr.totalPenaltyMinutes === prev.totalPenaltyMinutes &&
+            curr.lastAcceptedAtMs === prev.lastAcceptedAtMs &&
             curr.totalTimeMs === prev.totalTimeMs
           ) {
             curr.rank = prev.rank;
@@ -178,6 +196,7 @@ class RatingService {
 
       // 5. Calculate new rating and highest rating with floor enforcement
       const newRating = Math.max(RATING_CONFIG.MIN_RATING, p.currentRating + ratingChange);
+      const effectiveRatingChange = newRating - p.currentRating;
       const newHighestRating = Math.max(p.highestRating, newRating);
       const newRatedCount = p.ratedContestCount + 1;
       const newStatus =
@@ -192,7 +211,7 @@ class RatingService {
         userId: p.userId,
         username: p.username,
         previousRating: p.currentRating,
-        ratingChange,
+        ratingChange: effectiveRatingChange,
         newRating,
         newHighestRating,
         newRatingStatus: newStatus,
@@ -259,7 +278,15 @@ class RatingService {
 
       const contest = contestRes.rows[0];
 
-      // 2. Verify contest is published (not draft/archived)
+      // 2. Caller Authorization Verification under DB lock
+      if (operatorUser && !canManageResource(operatorUser, contest)) {
+        await client.query('ROLLBACK');
+        const err = new Error('Forbidden: You do not have permission to finalize contest ratings');
+        err.statusCode = 403;
+        throw err;
+      }
+
+      // 3. Verify contest is published (not draft/archived)
       if (contest.status !== 'published') {
         await client.query('ROLLBACK');
         const err = new Error('Cannot finalize ratings: Contest is in draft status');
@@ -267,7 +294,7 @@ class RatingService {
         throw err;
       }
 
-      // 3. IDEMPOTENCY CHECK: If already finalized, return existing data without recalculating.
+      // 4. IDEMPOTENCY CHECK: If already finalized, return existing data without recalculating.
       //
       // CRITICAL ORDER: This check MUST fire before the is_rated gate and before all other
       // validation checks. Reasons:
@@ -285,6 +312,23 @@ class RatingService {
           `SELECT * FROM rating_history WHERE contest_id = $1 ORDER BY rank ASC;`,
           [contestId]
         );
+        if (operatorUser) {
+          await AuditLogger.logAction({
+            actor: operatorUser,
+            action: 'RATINGS_FINALIZED',
+            resourceType: 'contest',
+            resourceId: contest.id,
+            outcome: 'success',
+            metadata: {
+              participantCount: existingHistory.rowCount,
+              isRated: Boolean(contest.is_rated),
+              isIdempotentSkip: true,
+              attemptType: 'repeated_finalization',
+            },
+            client,
+            req,
+          });
+        }
         await client.query('COMMIT');
         return {
           alreadyFinalized: true,
@@ -425,17 +469,13 @@ class RatingService {
       // 8. Calculate pairwise Elo deltas for rated contest
       const ratingUpdates = this.calculateRatingChanges(standings);
 
-      // 9. Persist updates and rating history for each participant
-      for (const update of ratingUpdates) {
-        // Update user record
-        await RatingModel.updateUserRating(client, update.userId, {
-          currentRating: update.newRating,
-          highestRating: update.newHighestRating,
-          ratingStatus: update.newRatingStatus,
-          ratedContestCount: update.newRatedContestCount,
-        });
+      if (options && options.__testSimulateFailureAt === 'rating_history') {
+        throw new Error('SIMULATED_FAILURE_RATING_HISTORY');
+      }
 
-        // Insert rating history entry
+      // 9. Persist rating history and user updates for each participant
+      for (const update of ratingUpdates) {
+        // Insert rating history entry FIRST
         await RatingModel.createRatingHistoryEntry(client, {
           userId: update.userId,
           contestId: contest.id,
@@ -447,6 +487,22 @@ class RatingService {
           performanceRating: update.performanceRating,
           ratingStatus: update.newRatingStatus,
         });
+
+        if (options && options.__testSimulateFailureAt === 'user_rating') {
+          throw new Error('SIMULATED_FAILURE_USER_RATING');
+        }
+
+        // Update user record
+        await RatingModel.updateUserRating(client, update.userId, {
+          currentRating: update.newRating,
+          highestRating: update.newHighestRating,
+          ratingStatus: update.newRatingStatus,
+          ratedContestCount: update.newRatedContestCount,
+        });
+      }
+
+      if (options && options.__testSimulateFailureAt === 'snapshot') {
+        throw new Error('SIMULATED_FAILURE_SNAPSHOT');
       }
 
       // 10. Build final results snapshot and mark contest as finalized.
@@ -455,7 +511,7 @@ class RatingService {
       //   - final standings (ranks, scores, penalties, solved counts)
       //   - rating updates (previous/new ratings, deltas, performance ratings)
       //   - podium (top 3 participants)
-      // Subsequent calls return alreadyFinalized=true from step 3 without re-computing.
+      // Subsequent calls return alreadyFinalized=true from step 4 without re-computing.
       const snapshot = {
         calculatedAt: new Date().toISOString(),
         totalParticipants: standings.length,
@@ -466,6 +522,10 @@ class RatingService {
         ratingUpdates,
       };
 
+      if (options && options.__testSimulateFailureAt === 'contest_update') {
+        throw new Error('SIMULATED_FAILURE_CONTEST_UPDATE');
+      }
+
       await client.query(
         `UPDATE contests 
          SET is_rating_finalized = true, 
@@ -474,6 +534,10 @@ class RatingService {
          WHERE id = $1;`,
         [contestId, JSON.stringify(snapshot)]
       );
+
+      if (options && options.__testSimulateFailureAt === 'audit_logging') {
+        throw new Error('SIMULATED_FAILURE_AUDIT_LOGGING');
+      }
 
       if (operatorUser) {
         await AuditLogger.logAction({

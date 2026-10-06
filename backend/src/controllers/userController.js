@@ -343,10 +343,15 @@ const getUserRating = async (req, res, next) => {
       });
     }
 
+    const isStudent = userSummary.role === 'student';
+
     return res.status(200).json({
       userId: userSummary.id,
       username: userSummary.username,
       fullName: userSummary.fullName,
+      role: userSummary.role,
+      isStudent,
+      isActive: userSummary.isActive !== false,
       currentRating: userSummary.currentRating,
       highestRating: userSummary.highestRating,
       ratingStatus: userSummary.ratingStatus,
@@ -380,6 +385,46 @@ const getUserRatingHistory = async (req, res, next) => {
       targetUserId = parsed;
     }
 
+    // Validate pagination query params if provided
+    let page = null;
+    let limit = null;
+    if (req.query.page !== undefined) {
+      const parsedPage = Number(req.query.page);
+      if (!Number.isInteger(parsedPage) || parsedPage <= 0) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Invalid page parameter. Page must be a positive integer >= 1.',
+        });
+      }
+      page = parsedPage;
+    }
+
+    if (req.query.limit !== undefined) {
+      const parsedLimit = Number(req.query.limit);
+      if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 100) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Invalid limit parameter. Limit must be an integer between 1 and 100.',
+        });
+      }
+      limit = parsedLimit;
+    }
+
+    let order = 'asc';
+    if (req.query.order !== undefined) {
+      const parsedOrder = String(req.query.order).toLowerCase();
+      if (parsedOrder !== 'asc' && parsedOrder !== 'desc') {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Invalid order parameter. Order must be "asc" or "desc".',
+        });
+      }
+      order = parsedOrder;
+    }
+
     const userSummary = await RatingModel.getUserRatingSummary(targetUserId);
     if (!userSummary) {
       return res.status(404).json({
@@ -389,12 +434,40 @@ const getUserRatingHistory = async (req, res, next) => {
       });
     }
 
-    const history = await RatingModel.getRatingHistoryByUser(targetUserId);
+    const totalCount = await RatingModel.countRatingHistoryByUser(targetUserId);
+
+    let history;
+    let pagination = null;
+
+    if (page !== null || limit !== null) {
+      const activePage = page || 1;
+      const activeLimit = limit || 20;
+      const offset = (activePage - 1) * activeLimit;
+      const totalPages = Math.max(1, Math.ceil(totalCount / activeLimit));
+
+      history = await RatingModel.getRatingHistoryByUser(targetUserId, {
+        limit: activeLimit,
+        offset,
+        order,
+      });
+
+      pagination = {
+        page: activePage,
+        limit: activeLimit,
+        totalRecords: totalCount,
+        totalPages,
+        hasNext: activePage < totalPages,
+        hasPrev: activePage > 1,
+      };
+    } else {
+      history = await RatingModel.getRatingHistoryByUser(targetUserId, { order });
+    }
 
     return res.status(200).json({
       userId: targetUserId,
-      historyCount: history.length,
+      historyCount: totalCount,
       history,
+      ...(pagination ? { pagination } : {}),
     });
   } catch (error) {
     next(error);

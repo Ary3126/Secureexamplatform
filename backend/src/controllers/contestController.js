@@ -2344,8 +2344,6 @@ const finalizeContestRatings = async (req, res, next) => {
       });
     }
 
-    const { force } = req.body || {};
-
     const contest = await ContestModel.findContestById(contestIdNum);
     if (!contest) {
       return res.status(404).json({
@@ -2373,9 +2371,38 @@ const finalizeContestRatings = async (req, res, next) => {
       });
     }
 
-    const result = await RatingService.finalizeContestRatings(contestIdNum, req.user, {
+    // Client rating tampering detection & security logging
+    const { force, ratingChange, newRating, previousRating, rank, participantCount, __testSimulateFailureAt } = req.body || {};
+    if (
+      ratingChange !== undefined ||
+      newRating !== undefined ||
+      previousRating !== undefined ||
+      rank !== undefined ||
+      participantCount !== undefined
+    ) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'RATING_INTEGRITY_VIOLATION',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CLIENT_RATING_TAMPERING',
+          reason: 'Client-supplied rating values are strictly ignored. All calculations are server-authoritative.',
+          tamperingPayload: { ratingChange, newRating, previousRating, rank, participantCount },
+        },
+        req,
+      });
+    }
+
+    const options = {
       force: Boolean(force),
-    }, req);
+    };
+    if (process.env.NODE_ENV === 'test' && __testSimulateFailureAt) {
+      options.__testSimulateFailureAt = __testSimulateFailureAt;
+    }
+
+    const result = await RatingService.finalizeContestRatings(contestIdNum, req.user, options, req);
 
     return res.status(200).json(result);
   } catch (error) {

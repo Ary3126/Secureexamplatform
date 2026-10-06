@@ -75,6 +75,16 @@ function request(method, path, body = null, token = null) {
   });
 }
 
+const createdUserIds = [];
+const createdContestIds = [];
+
+const origCreateContest = ContestModel.createContest.bind(ContestModel);
+ContestModel.createContest = async function(...args) {
+  const c = await origCreateContest(...args);
+  createdContestIds.push(c.id);
+  return c;
+};
+
 async function createTestUser(role = 'student', customData = {}) {
   const ts = Date.now() + Math.floor(Math.random() * 100000);
   const username = customData.username || `u_${role}_${ts}`;
@@ -89,7 +99,9 @@ async function createTestUser(role = 'student', customData = {}) {
      RETURNING id, username, email, role, current_rating AS "currentRating", highest_rating AS "highestRating", rating_status AS "ratingStatus", rated_contest_count AS "ratedContestCount";`,
     [username, email, `Test ${username}`, role, rating, ratingStatus, ratedCount]
   );
-  return res.rows[0];
+  const user = res.rows[0];
+  createdUserIds.push(user.id);
+  return user;
 }
 
 function loginUser(email, role = 'student', id = null) {
@@ -366,12 +378,28 @@ async function runTestSuite() {
     }
   } catch (err) {
     console.error('Test execution error:', err);
-    process.exitCode = 1;
+    failed++;
   } finally {
+    try {
+      if (createdContestIds.length > 0) {
+        await db.query(`DELETE FROM rating_history WHERE contest_id = ANY($1::int[]);`, [createdContestIds]);
+        await db.query(`DELETE FROM contest_participants WHERE contest_id = ANY($1::int[]);`, [createdContestIds]);
+        await db.query(`DELETE FROM contest_problems WHERE contest_id = ANY($1::int[]);`, [createdContestIds]);
+        await db.query(`DELETE FROM submissions WHERE contest_id = ANY($1::int[]);`, [createdContestIds]);
+        await db.query(`DELETE FROM contests WHERE id = ANY($1::int[]);`, [createdContestIds]);
+      }
+      if (createdUserIds.length > 0) {
+        await db.query(`DELETE FROM users WHERE id = ANY($1::int[]);`, [createdUserIds]);
+      }
+      console.log(`  [CLEANUP] Successfully cleaned ${createdContestIds.length} test contests and ${createdUserIds.length} test users.`);
+    } catch (cleanErr) {
+      console.error('Teardown cleanup error:', cleanErr);
+    }
     if (server) {
       server.close();
     }
     await db.closePool();
+    process.exit(failed > 0 ? 1 : 0);
   }
 }
 

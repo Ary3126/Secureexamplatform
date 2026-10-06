@@ -799,9 +799,7 @@ async function runPhaseCompletionIntegrationSuite() {
       console.error('Error during test cleanup:', cleanErr.message);
     }
     await db.closePool();
-    if (exitCode !== 0) {
-      process.exit(exitCode);
-    }
+    process.exit(exitCode);
   }
 }
 

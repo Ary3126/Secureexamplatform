@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     bio TEXT DEFAULT '',
     avatar_url TEXT DEFAULT '',
     institution VARCHAR(150) DEFAULT '',
-    current_rating INTEGER NOT NULL DEFAULT 1200,
-    highest_rating INTEGER NOT NULL DEFAULT 1200,
+    current_rating INTEGER NOT NULL DEFAULT 1200 CHECK (current_rating >= 100),
+    highest_rating INTEGER NOT NULL DEFAULT 1200 CHECK (highest_rating >= 100),
     rating_status VARCHAR(20) NOT NULL DEFAULT 'provisional' CHECK (rating_status IN ('provisional', 'rated')),
     rated_contest_count INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
@@ -330,7 +330,11 @@ CREATE TABLE IF NOT EXISTS rating_history (
     performance_rating INTEGER NOT NULL DEFAULT 1200,
     rating_status VARCHAR(20) NOT NULL DEFAULT 'provisional',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_rating_history_user_contest UNIQUE (user_id, contest_id)
+    CONSTRAINT uq_rating_history_user_contest UNIQUE (user_id, contest_id),
+    CONSTRAINT chk_rating_history_rank CHECK (rank > 0),
+    CONSTRAINT chk_rating_history_participant_count CHECK (participant_count > 0),
+    CONSTRAINT chk_rating_history_new_rating CHECK (new_rating >= 100),
+    CONSTRAINT chk_rating_history_previous_rating CHECK (previous_rating >= 100)
 );
 
 CREATE INDEX IF NOT EXISTS idx_rating_history_user_id ON rating_history(user_id);

@@ -692,7 +692,9 @@ export default function UserProfile({
                         </td>
                         <td className="font-mono font-bold text-slate-100">{h.newRating}</td>
                         <td className="text-slate-400 text-xs">
-                          {h.finalizedAt ? new Date(h.finalizedAt).toLocaleDateString() : 'Recent'}
+                          {h.finalizedAt || h.createdAt
+                            ? new Date(h.finalizedAt || h.createdAt).toLocaleDateString()
+                            : 'Recent'}
                         </td>
                       </tr>
                     ))}

@@ -328,6 +328,25 @@ const initDb = async () => {
       -- Phase 7.5.5.8 Migration: Contest Problem Order Integrity
       ALTER TABLE contest_problems DROP CONSTRAINT IF EXISTS contest_problems_order_check;
       ALTER TABLE contest_problems ADD CONSTRAINT contest_problems_order_check CHECK (problem_order > 0);
+
+      -- Phase 7.5.9.3 Migration: Rating History & User Rating Invariants
+      ALTER TABLE rating_history DROP CONSTRAINT IF EXISTS chk_rating_history_rank;
+      ALTER TABLE rating_history ADD CONSTRAINT chk_rating_history_rank CHECK (rank > 0);
+
+      ALTER TABLE rating_history DROP CONSTRAINT IF EXISTS chk_rating_history_participant_count;
+      ALTER TABLE rating_history ADD CONSTRAINT chk_rating_history_participant_count CHECK (participant_count > 0);
+
+      ALTER TABLE rating_history DROP CONSTRAINT IF EXISTS chk_rating_history_new_rating;
+      ALTER TABLE rating_history ADD CONSTRAINT chk_rating_history_new_rating CHECK (new_rating >= 100);
+
+      ALTER TABLE rating_history DROP CONSTRAINT IF EXISTS chk_rating_history_previous_rating;
+      ALTER TABLE rating_history ADD CONSTRAINT chk_rating_history_previous_rating CHECK (previous_rating >= 100);
+
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS chk_users_current_rating_floor;
+      ALTER TABLE users ADD CONSTRAINT chk_users_current_rating_floor CHECK (current_rating >= 100);
+
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS chk_users_highest_rating_floor;
+      ALTER TABLE users ADD CONSTRAINT chk_users_highest_rating_floor CHECK (highest_rating >= 100);
     `);
 
     // 2b. Execute full schema SQL (tables, indexes, constraints)
