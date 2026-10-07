@@ -37,8 +37,8 @@ const requestReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
     const { id } = req.params;
-    const problemId = parseInt(id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -135,8 +135,8 @@ const startReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
     const { id } = req.params;
-    const problemId = parseInt(id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -210,7 +210,10 @@ const requestChanges = async (req, res, next) => {
   const client = await db.getClient();
   try {
     const { id } = req.params;
-    const problemId = parseInt(id, 10);
+    const problemId = Number(id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
+      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
+    }
     const comment = req.body.comment || req.body.note || req.body.decisionReason;
 
     if (!comment || typeof comment !== 'string' || !comment.trim()) {
@@ -284,7 +287,10 @@ const rejectReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
     const { id } = req.params;
-    const problemId = parseInt(id, 10);
+    const problemId = Number(id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
+      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
+    }
     const reason = req.body.reason || req.body.comment || req.body.note;
 
     if (!reason || typeof reason !== 'string' || !reason.trim()) {
@@ -358,7 +364,10 @@ const approveReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
     const { id } = req.params;
-    const problemId = parseInt(id, 10);
+    const problemId = Number(id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
+      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
+    }
     const { note } = req.body || {};
 
     await client.query('BEGIN');
@@ -463,7 +472,10 @@ const resubmitReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
     const { id } = req.params;
-    const problemId = parseInt(id, 10);
+    const problemId = Number(id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
+      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
+    }
     const { comment } = req.body || {};
 
     await client.query('BEGIN');
@@ -544,8 +556,8 @@ const resubmitReview = async (req, res, next) => {
 const getProblemReviews = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const problemId = parseInt(id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -576,8 +588,9 @@ const getProblemReviews = async (req, res, next) => {
  */
 const getReviewDetail = async (req, res, next) => {
   try {
-    const reviewId = parseInt(req.params.reviewId || req.params.id, 10);
-    if (isNaN(reviewId) || reviewId <= 0) {
+    const rawReviewId = req.params.reviewId || req.params.id;
+    const reviewId = Number(rawReviewId);
+    if (!Number.isInteger(reviewId) || reviewId <= 0 || !/^\d+$/.test(String(rawReviewId).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid review ID format' });
     }
 
@@ -610,7 +623,10 @@ const getReviewDetail = async (req, res, next) => {
 const addReviewComment = async (req, res, next) => {
   try {
     const { id, reviewId } = req.params;
-    const rId = parseInt(reviewId, 10);
+    const rId = Number(reviewId);
+    if (!Number.isInteger(rId) || rId <= 0 || !/^\d+$/.test(String(reviewId).trim())) {
+      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid review ID format' });
+    }
     const { comment, commentType = 'general' } = req.body;
 
     if (!comment || typeof comment !== 'string' || !comment.trim()) {
@@ -686,8 +702,14 @@ const getReviewQueue = async (req, res, next) => {
 const getReviewVersionDiff = async (req, res, next) => {
   try {
     const { id, reviewId } = req.params;
-    const pId = parseInt(id, 10);
-    const rId = parseInt(reviewId, 10);
+    const pId = Number(id);
+    const rId = Number(reviewId);
+    if (!Number.isInteger(pId) || pId <= 0 || !/^\d+$/.test(String(id).trim())) {
+      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
+    }
+    if (!Number.isInteger(rId) || rId <= 0 || !/^\d+$/.test(String(reviewId).trim())) {
+      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid review ID format' });
+    }
 
     const problem = await ProblemModel.findProblemById(pId);
     if (!problem) {

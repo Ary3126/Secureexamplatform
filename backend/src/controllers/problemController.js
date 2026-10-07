@@ -132,8 +132,8 @@ const getAllProblems = async (req, res, next) => {
 const getProblemById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -181,9 +181,17 @@ const getProblemById = async (req, res, next) => {
 const bookmarkProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
     const userId = req.user.id;
 
-    const problem = await ProblemModel.findProblemById(id);
+    const problem = await ProblemModel.findProblemById(parsedId);
     if (!problem) {
       return res.status(404).json({
         status: 'error',
@@ -192,12 +200,12 @@ const bookmarkProblem = async (req, res, next) => {
       });
     }
 
-    await SavedProblemModel.saveProblem(userId, id);
+    await SavedProblemModel.saveProblem(userId, parsedId);
 
     return res.status(200).json({
       message: 'Problem bookmarked successfully',
       isSaved: true,
-      problemId: parseInt(id, 10),
+      problemId: parsedId,
     });
   } catch (error) {
     next(error);
@@ -211,14 +219,22 @@ const bookmarkProblem = async (req, res, next) => {
 const unbookmarkProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem identifier format',
+      });
+    }
     const userId = req.user.id;
 
-    await SavedProblemModel.unsaveProblem(userId, id);
+    await SavedProblemModel.unsaveProblem(userId, parsedId);
 
     return res.status(200).json({
       message: 'Problem removed from bookmarks',
       isSaved: false,
-      problemId: parseInt(id, 10),
+      problemId: parsedId,
     });
   } catch (error) {
     next(error);
@@ -269,8 +285,8 @@ const getSavedProblems = async (req, res, next) => {
 const updateProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -349,8 +365,8 @@ const updateProblem = async (req, res, next) => {
 const publishProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -420,8 +436,8 @@ const publishProblem = async (req, res, next) => {
 const previewProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -484,8 +500,8 @@ const previewProblem = async (req, res, next) => {
 const cloneProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -547,8 +563,8 @@ const cloneProblem = async (req, res, next) => {
 const getProblemVersions = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -600,10 +616,10 @@ const getProblemVersions = async (req, res, next) => {
 const getProblemVersionDetail = async (req, res, next) => {
   try {
     const { id, versionNumber } = req.params;
-    const parsedId = parseInt(id, 10);
-    const parsedVersion = parseInt(versionNumber, 10);
+    const parsedId = Number(id);
+    const parsedVersion = Number(versionNumber);
 
-    if (isNaN(parsedId) || parsedId <= 0) {
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -611,7 +627,7 @@ const getProblemVersionDetail = async (req, res, next) => {
       });
     }
 
-    if (isNaN(parsedVersion) || parsedVersion <= 0) {
+    if (!Number.isInteger(parsedVersion) || parsedVersion <= 0 || !/^\d+$/.test(String(versionNumber).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -669,8 +685,8 @@ const getProblemVersionDetail = async (req, res, next) => {
 const deleteProblem = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const parsedId = Number(id);
+    if (!Number.isInteger(parsedId) || parsedId <= 0 || !/^\d+$/.test(String(id).trim())) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,

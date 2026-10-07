@@ -192,6 +192,7 @@ const updateContest = async (req, res, next) => {
         message: 'Invalid contest ID format. ID must be a positive integer.',
       });
     }
+    const id = contestIdNum;
 
     const contest = await ContestModel.findContestById(contestIdNum);
 
@@ -359,6 +360,7 @@ const deleteContest = async (req, res, next) => {
         message: 'Invalid contest ID format. ID must be a positive integer.',
       });
     }
+    const id = contestIdNum;
 
     const contest = await ContestModel.findContestById(contestIdNum);
 

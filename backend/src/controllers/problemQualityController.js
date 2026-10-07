@@ -24,8 +24,8 @@ function canAccessProblemQuality(user, problem) {
  */
 const getProblemQuality = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -105,8 +105,8 @@ const getProblemQuality = async (req, res, next) => {
  */
 const getEditorialChecklist = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -154,8 +154,8 @@ const getEditorialChecklist = async (req, res, next) => {
  */
 const getProblemSimilarity = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -202,8 +202,8 @@ const getProblemSimilarity = async (req, res, next) => {
  */
 const getProblemReviewAnalytics = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 

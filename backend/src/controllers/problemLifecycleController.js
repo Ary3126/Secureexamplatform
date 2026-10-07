@@ -24,10 +24,10 @@ function canAccessProblemLifecycle(user, problem) {
  */
 const compareVersions = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
+    const problemId = Number(req.params.id);
     const { v1, v2 } = req.query;
 
-    if (isNaN(problemId) || problemId <= 0) {
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -91,14 +91,14 @@ const compareVersions = async (req, res, next) => {
 const rollbackVersion = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const problemId = parseInt(req.params.id, 10);
-    const targetVersion = parseInt(req.params.v, 10);
+    const problemId = Number(req.params.id);
+    const targetVersion = Number(req.params.v);
     const { changeSummary } = req.body || {};
 
-    if (isNaN(problemId) || problemId <= 0) {
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
-    if (isNaN(targetVersion) || targetVersion <= 0) {
+    if (!Number.isInteger(targetVersion) || targetVersion <= 0 || !/^\d+$/.test(String(req.params.v).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Target version must be a positive integer' });
     }
 
@@ -289,8 +289,8 @@ const rollbackVersion = async (req, res, next) => {
 const unpublishProblem = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -367,8 +367,8 @@ const unpublishProblem = async (req, res, next) => {
 const archiveProblem = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -444,8 +444,8 @@ const archiveProblem = async (req, res, next) => {
 const restoreArchivedProblem = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -506,10 +506,10 @@ const restoreArchivedProblem = async (req, res, next) => {
  */
 const schedulePublication = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
+    const problemId = Number(req.params.id);
     const { scheduledPublishAt } = req.body;
 
-    if (isNaN(problemId) || problemId <= 0) {
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -572,8 +572,8 @@ const schedulePublication = async (req, res, next) => {
  */
 const cancelScheduledPublication = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -614,8 +614,8 @@ const cancelScheduledPublication = async (req, res, next) => {
  */
 const executeScheduledPublication = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 
@@ -675,8 +675,8 @@ const executeScheduledPublication = async (req, res, next) => {
  */
 const getProblemDependencies = async (req, res, next) => {
   try {
-    const problemId = parseInt(req.params.id, 10);
-    if (isNaN(problemId) || problemId <= 0) {
+    const problemId = Number(req.params.id);
+    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(req.params.id).trim())) {
       return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
     }
 

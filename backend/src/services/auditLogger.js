@@ -161,12 +161,18 @@ class AuditLogger {
     // 5. Normalize Resource ID
     const safeResourceId = resourceId && Number.isInteger(Number(resourceId)) ? Number(resourceId) : null;
 
+    // Log injection defense: sanitize action, resourceType, and username against CRLF/control chars
+    const safeAction = String(action || 'UNKNOWN').replace(/[\r\n\x00-\x1f]/g, '');
+    const safeResourceType = String(resourceType || 'system').replace(/[\r\n\x00-\x1f]/g, '');
+    const safeUsername = actor && actor.username ? String(actor.username).replace(/[\r\n\x00-\x1f]/g, '') : 'user';
+    const safeRole = actor && actor.role ? String(actor.role).replace(/[\r\n\x00-\x1f]/g, '') : 'none';
+
     // 6. Base in-memory audit record for synchronous consumption
     const auditEntry = {
       id: null,
       actorId: safeActorId,
-      action,
-      resourceType,
+      action: safeAction,
+      resourceType: safeResourceType,
       resourceId: safeResourceId,
       outcome: normalizedOutcome,
       metadata: safeMetadata,
@@ -174,19 +180,19 @@ class AuditLogger {
       createdAt: new Date().toISOString(),
       actor: {
         id: safeActorId,
-        username: actor ? actor.username : 'user',
-        role: actor ? actor.role : 'none',
+        username: safeUsername,
+        role: safeRole,
       },
       resource: {
-        type: resourceType,
+        type: safeResourceType,
         id: safeResourceId,
       },
     };
 
     // 7. Console output for structured cloud observability (disabled in test runs)
     if (config.nodeEnv !== 'test') {
-      const actorTag = actor ? `${actor.username} (${actor.role}#${safeActorId})` : `User#${safeActorId || 'ANONYMOUS'}`;
-      console.log(`[SECURITY AUDIT] [${auditEntry.createdAt}] [${action}] [${normalizedOutcome.toUpperCase()}] Actor:${actorTag} Target:${resourceType}#${safeResourceId}`, safeMetadata);
+      const actorTag = actor ? `${safeUsername} (${safeRole}#${safeActorId})` : `User#${safeActorId || 'ANONYMOUS'}`;
+      console.log(`[SECURITY AUDIT] [${auditEntry.createdAt}] [${safeAction}] [${normalizedOutcome.toUpperCase()}] Actor:${actorTag} Target:${safeResourceType}#${safeResourceId}`, safeMetadata);
     }
 
     // 8. Asynchronous persistence to PostgreSQL

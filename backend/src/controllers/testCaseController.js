@@ -14,14 +14,15 @@ const { canManageResource } = require('../services/contestService');
 const createTestCase = async (req, res, next) => {
   try {
     const { problemId } = req.params;
-    const parsedProblemId = parseInt(problemId, 10);
-    if (isNaN(parsedProblemId) || parsedProblemId <= 0) {
+    const problemIdNum = Number(problemId);
+    if (!Number.isInteger(problemIdNum) || problemIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
         message: 'Invalid problem identifier format',
       });
     }
+    const parsedProblemId = problemIdNum;
 
     const problem = await ProblemModel.findProblemById(parsedProblemId);
     if (!problem) {
@@ -78,14 +79,15 @@ const createTestCase = async (req, res, next) => {
 const getTestCases = async (req, res, next) => {
   try {
     const { problemId } = req.params;
-    const parsedProblemId = parseInt(problemId, 10);
-    if (isNaN(parsedProblemId) || parsedProblemId <= 0) {
+    const problemIdNum = Number(problemId);
+    if (!Number.isInteger(problemIdNum) || problemIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
         message: 'Invalid problem identifier format',
       });
     }
+    const parsedProblemId = problemIdNum;
 
     const problem = await ProblemModel.findProblemById(parsedProblemId);
     if (!problem) {
@@ -131,14 +133,15 @@ const getTestCases = async (req, res, next) => {
 const getTestCaseById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const testCaseIdNum = Number(id);
+    if (!Number.isInteger(testCaseIdNum) || testCaseIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
         message: 'Invalid test case identifier format',
       });
     }
+    const parsedId = testCaseIdNum;
 
     const testCase = await TestCaseModel.findTestCaseById(parsedId);
     if (!testCase) {
@@ -151,8 +154,8 @@ const getTestCaseById = async (req, res, next) => {
 
     // Cross-resource verification: Ensure test case belongs to problem if problemId is in route
     if (req.params.problemId) {
-      const routeProbId = parseInt(req.params.problemId, 10);
-      if (isNaN(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
+      const routeProbId = Number(req.params.problemId);
+      if (!Number.isInteger(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
         return res.status(404).json({
           status: 'error',
           statusCode: 404,
@@ -194,14 +197,15 @@ const getTestCaseById = async (req, res, next) => {
 const updateTestCase = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const testCaseIdNum = Number(id);
+    if (!Number.isInteger(testCaseIdNum) || testCaseIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
         message: 'Invalid test case identifier format',
       });
     }
+    const parsedId = testCaseIdNum;
 
     const testCase = await TestCaseModel.findTestCaseById(parsedId);
     if (!testCase) {
@@ -214,8 +218,8 @@ const updateTestCase = async (req, res, next) => {
 
     // Cross-resource verification: Ensure test case belongs to problem if problemId is in route
     if (req.params.problemId) {
-      const routeProbId = parseInt(req.params.problemId, 10);
-      if (isNaN(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
+      const routeProbId = Number(req.params.problemId);
+      if (!Number.isInteger(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
         return res.status(404).json({
           status: 'error',
           statusCode: 404,
@@ -268,14 +272,15 @@ const updateTestCase = async (req, res, next) => {
 const deleteTestCase = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const parsedId = parseInt(id, 10);
-    if (isNaN(parsedId) || parsedId <= 0) {
+    const testCaseIdNum = Number(id);
+    if (!Number.isInteger(testCaseIdNum) || testCaseIdNum <= 0) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
         message: 'Invalid test case identifier format',
       });
     }
+    const parsedId = testCaseIdNum;
 
     const testCase = await TestCaseModel.findTestCaseById(parsedId);
     if (!testCase) {
@@ -288,8 +293,8 @@ const deleteTestCase = async (req, res, next) => {
 
     // Cross-resource verification: Ensure test case belongs to problem if problemId is in route
     if (req.params.problemId) {
-      const routeProbId = parseInt(req.params.problemId, 10);
-      if (isNaN(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
+      const routeProbId = Number(req.params.problemId);
+      if (!Number.isInteger(routeProbId) || routeProbId <= 0 || routeProbId !== testCase.problemId) {
         return res.status(404).json({
           status: 'error',
           statusCode: 404,

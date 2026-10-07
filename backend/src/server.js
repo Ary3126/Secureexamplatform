@@ -52,6 +52,18 @@ app.use(timeoutMiddleware);
 app.use(express.json({ limit: RATE_LIMIT_CONFIG.LIMITS.maxJsonBodyBytes }));
 app.use(express.urlencoded({ extended: true, limit: RATE_LIMIT_CONFIG.LIMITS.maxUrlEncodedBytes }));
 
+// HTTP Parameter Pollution (HPP) defense: deterministically resolve array query params to first scalar
+app.use((req, res, next) => {
+  if (req.query && typeof req.query === 'object') {
+    for (const key of Object.keys(req.query)) {
+      if (Array.isArray(req.query[key])) {
+        req.query[key] = req.query[key][0];
+      }
+    }
+  }
+  next();
+});
+
 app.use('/api', apiRoutes);
 
 app.get('/health', publicReadRateLimiter, (req, res) => {

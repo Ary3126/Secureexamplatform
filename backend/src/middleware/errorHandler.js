@@ -31,6 +31,34 @@ const errorHandler = (err, req, res, next) => {
     statusCode = 400;
     errorCategory = 'VALIDATION_ERROR';
     err.message = 'Invalid resource identifier format';
+  } else if (err.code === '22021') {
+    statusCode = 400;
+    errorCategory = 'VALIDATION_ERROR';
+    err.message = 'Invalid character encoding or null byte in input';
+  } else if (err.code === '22001') {
+    statusCode = 400;
+    errorCategory = 'VALIDATION_ERROR';
+    err.message = 'Input value exceeds maximum allowed length';
+  } else if (err.code === '22003') {
+    statusCode = 400;
+    errorCategory = 'VALIDATION_ERROR';
+    err.message = 'Numeric value out of range';
+  } else if (err.code === '22007') {
+    statusCode = 400;
+    errorCategory = 'VALIDATION_ERROR';
+    err.message = 'Invalid datetime format in input';
+  } else if (err.code === '23502') {
+    statusCode = 400;
+    errorCategory = 'VALIDATION_ERROR';
+    err.message = 'Required field cannot be null';
+  } else if (err.code === '23503') {
+    statusCode = 400;
+    errorCategory = 'VALIDATION_ERROR';
+    err.message = 'Referenced resource does not exist';
+  } else if (err.code === '23514') {
+    statusCode = 400;
+    errorCategory = 'VALIDATION_ERROR';
+    err.message = 'Input violates data integrity constraint';
   } else if (err.code === '23505') {
     statusCode = 409;
     errorCategory = 'CONFLICT';
@@ -108,7 +136,7 @@ const errorHandler = (err, req, res, next) => {
     timestamp: new Date().toISOString(),
   };
 
-  if (config.nodeEnv === 'development' && err.stack) {
+  if (process.env.EXPOSE_STACK_TRACE === 'true' && err.stack) {
     response.stack = err.stack;
   }
 
