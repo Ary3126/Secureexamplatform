@@ -124,14 +124,23 @@ const getAllContests = async (req, res, next) => {
  */
 const getContestById = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const contest = await ContestModel.findContestById(id);
+    const rawId = req.params.id;
+    const contestIdNum = Number(rawId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
 
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${id} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -144,7 +153,7 @@ const getContestById = async (req, res, next) => {
       });
     }
 
-    const problems = await ContestModel.getContestProblems(id);
+    const problems = await ContestModel.getContestProblems(contest.id);
     const formatted = formatContest(contest);
 
     let isEnrolled = false;
@@ -174,14 +183,23 @@ const getContestById = async (req, res, next) => {
  */
 const updateContest = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const contest = await ContestModel.findContestById(id);
+    const rawId = req.params.id;
+    const contestIdNum = Number(rawId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
 
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${id} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -190,7 +208,7 @@ const updateContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: id,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: { attemptedAction: 'CONTEST_UPDATED' },
         req,
@@ -332,14 +350,23 @@ const updateContest = async (req, res, next) => {
  */
 const deleteContest = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const contest = await ContestModel.findContestById(id);
+    const rawId = req.params.id;
+    const contestIdNum = Number(rawId);
+    if (!Number.isInteger(contestIdNum) || contestIdNum <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid contest ID format. ID must be a positive integer.',
+      });
+    }
+
+    const contest = await ContestModel.findContestById(contestIdNum);
 
     if (!contest) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
-        message: `Contest with ID ${id} not found`,
+        message: `Contest with ID ${contestIdNum} not found`,
       });
     }
 
@@ -348,7 +375,7 @@ const deleteContest = async (req, res, next) => {
         actor: req.user,
         action: 'PRIVILEGED_ACTION_DENIED',
         resourceType: 'contest',
-        resourceId: id,
+        resourceId: contestIdNum,
         outcome: 'denied',
         metadata: { attemptedAction: 'CONTEST_DELETED' },
         req,
