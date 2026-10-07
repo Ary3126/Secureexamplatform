@@ -61,8 +61,22 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    // Validate userId claim format (must be a positive integer)
+    const parsedUserId = Number(decoded.userId);
+    if (!Number.isInteger(parsedUserId) || parsedUserId <= 0) {
+      res.locals.errorCategory = 'AUTHENTICATION_ERROR';
+      return res.status(401).json({
+        status: 'error',
+        statusCode: 401,
+        error: 'AUTHENTICATION_ERROR',
+        message: 'Unauthorized: Invalid user identity in token',
+        requestId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Verify user still exists in database and is active
-    const user = await UserModel.findUserById(decoded.userId);
+    const user = await UserModel.findUserById(parsedUserId);
     if (!user) {
       res.locals.errorCategory = 'AUTHENTICATION_ERROR';
       return res.status(401).json({
@@ -116,7 +130,12 @@ const optionalAuthenticate = async (req, res, next) => {
 
     try {
       const decoded = verifyToken(token);
-      const user = await UserModel.findUserById(decoded.userId);
+      const parsedUserId = Number(decoded.userId);
+      if (!Number.isInteger(parsedUserId) || parsedUserId <= 0) {
+        req.user = null;
+        return next();
+      }
+      const user = await UserModel.findUserById(parsedUserId);
       if (user && user.is_active) {
         req.user = sanitizeUser(user);
       } else {
