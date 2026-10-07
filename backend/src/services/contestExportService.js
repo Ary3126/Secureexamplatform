@@ -607,4 +607,8 @@ class ContestExportService {
   }
 }
 
+ContestExportService.escapeCsv = escapeCsv;
+
 module.exports = ContestExportService;
+module.exports.escapeCsv = escapeCsv;
+

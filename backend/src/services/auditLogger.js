@@ -11,7 +11,7 @@ const AuditLogModel = require('../models/auditLogModel');
 
 // Denied sensitive keys that must never be stored in audit metadata
 const SENSITIVE_KEY_PATTERNS = [
-  /^password/i,
+  /password/i,
   /^pass(word)?_?hash/i,
   /^jwt$/i,
   /^token$/i,

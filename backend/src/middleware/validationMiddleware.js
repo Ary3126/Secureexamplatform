@@ -77,13 +77,14 @@ const validateRegister = (req, res, next) => {
 };
 
 const validateLogin = (req, res, next) => {
-  const { email, password } = req.body;
+  const { password } = req.body;
+  const identifier = req.body.email || req.body.username;
 
-  if (!email || typeof email !== 'string' || email.trim().length === 0) {
+  if (!identifier || typeof identifier !== 'string' || identifier.trim().length === 0) {
     return res.status(400).json({
       status: 'error',
       statusCode: 400,
-      message: 'Validation failed: email is required.',
+      message: 'Validation failed: email or username is required.',
     });
   }
 
