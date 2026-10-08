@@ -396,6 +396,16 @@ class ContestModel {
         };
       }
 
+      if (runtimeState === 'running' && isRated !== undefined && Boolean(isRated) !== Boolean(lockedContest.is_rated)) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          runtimeState,
+          message: 'Cannot modify rated status while the contest is running.',
+        };
+      }
+
       // Check if lifecycle-defining fields are present in update
       const isLifecycleMutating = startTime !== undefined || endTime !== undefined || status !== undefined;
 
@@ -820,13 +830,24 @@ class ContestModel {
 
       // 1. Lock the contest row for update
       const cRes = await client.query(
-        'SELECT id FROM contests WHERE id = $1 FOR UPDATE',
+        'SELECT id, status, start_time AS "startTime", end_time AS "endTime" FROM contests WHERE id = $1 FOR UPDATE',
         [id]
       );
 
       if (cRes.rowCount === 0) {
         await client.query('ROLLBACK');
         return { success: false, notFound: true };
+      }
+
+      const currentContest = cRes.rows[0];
+      const runtimeState = getContestRuntimeState(currentContest);
+      if (runtimeState === 'running') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          running: true,
+          message: 'Cannot delete an actively running contest.',
+        };
       }
 
       // 2. Authoritative check under row lock

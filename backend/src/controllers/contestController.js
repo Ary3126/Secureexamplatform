@@ -317,6 +317,41 @@ const updateContest = async (req, res, next) => {
           errors: ['Contest end time must be later than the start time.'],
         });
       }
+
+      // Hardening: For published upcoming contests, start time cannot be set in the past to force early start
+      if (contest.status === 'published' && startTime !== undefined) {
+        const newStart = new Date(startTime);
+        if (newStart <= new Date()) {
+          return res.status(400).json({
+            status: 'error',
+            statusCode: 400,
+            message: 'Contest update validation failed',
+            errors: ['Cannot set start time to the past for a published upcoming contest.'],
+          });
+        }
+      }
+
+      // Hardening: For published upcoming contests, end time cannot be set in the past
+      if (contest.status === 'published' && endTime !== undefined) {
+        const newEnd = new Date(endTime);
+        if (newEnd <= new Date()) {
+          return res.status(400).json({
+            status: 'error',
+            statusCode: 400,
+            message: 'Contest update validation failed',
+            errors: ['Cannot set end time to the past for a published upcoming contest.'],
+          });
+        }
+      }
+    }
+
+    // Hardening: isRated cannot be modified while contest is running
+    if (isRated !== undefined && runtimeState === 'running') {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot modify rated status while the contest is running.',
+      });
     }
 
     // 2. Perform atomic update with row locking & audit logging
@@ -422,6 +457,14 @@ const deleteContest = async (req, res, next) => {
 
     // Atomic transactional deletion with row locking & audit logging
     const deleteResult = await ContestModel.deleteContestWithSafety(id, req.user, req);
+    if (deleteResult.running) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: 'Cannot delete an actively running contest.',
+      });
+    }
+
     if (deleteResult.hasSubmissions) {
       return res.status(409).json({
         status: 'error',
