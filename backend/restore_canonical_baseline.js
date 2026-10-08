@@ -5,6 +5,18 @@ async function restore() {
   try {
     await client.query('BEGIN');
 
+    // 0. Clean up any non-baseline rows
+    await client.query('DELETE FROM submissions WHERE user_id NOT IN (2, 3, 1093, 3833, 4339) OR problem_id NOT IN (319, 320, 1797, 1798, 1914) OR (contest_id IS NOT NULL AND contest_id != 147)');
+    await client.query('DELETE FROM rating_history WHERE user_id NOT IN (2, 3, 1093, 3833, 4339) OR contest_id != 147');
+    await client.query('DELETE FROM contest_participants WHERE contest_id != 147 OR user_id NOT IN (2, 3, 1093, 3833, 4339)');
+    await client.query('DELETE FROM contest_problems WHERE contest_id != 147');
+    await client.query('DELETE FROM contests WHERE id != 147');
+    await client.query('DELETE FROM test_cases WHERE problem_id NOT IN (319, 320, 1797, 1798, 1914)');
+    await client.query('DELETE FROM saved_problems WHERE user_id NOT IN (2, 3, 1093, 3833, 4339) OR problem_id NOT IN (319, 320, 1797, 1798, 1914)');
+    await client.query('DELETE FROM problems WHERE id NOT IN (319, 320, 1797, 1798, 1914)');
+    await client.query('DELETE FROM audit_logs WHERE actor_id NOT IN (2, 3, 1093, 3833, 4339)');
+    await client.query('DELETE FROM users WHERE id NOT IN (2, 3, 1093, 3833, 4339)');
+
     // 1. Restore Users
     await client.query(`
       INSERT INTO users (id, username, email, password_hash, full_name, role, is_active, current_rating, highest_rating, rating_status)
@@ -29,6 +41,8 @@ async function restore() {
       VALUES
         (319, 'Add Two Numbers (Function Mode)', 'Calculate the sum of two integers', 'easy', 'function', 'contest_private', 1093, '["python","cpp","java","javascript","c"]'::jsonb),
         (320, 'Multiply Two Integers (Full Program)', 'Calculate the product of two integers', 'easy', 'full_program', 'contest_private', 1093, '["python","cpp","java","javascript","c"]'::jsonb),
+        (1797, 'Two Sum', 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.', 'easy', 'function', 'public', 1093, '["python","cpp","java","javascript","c"]'::jsonb),
+        (1798, 'Subarray Sum', 'Given an array of integers nums and an integer k, return the total number of continuous subarrays whose sum equals to k.', 'medium', 'function', 'public', 1093, '["python","cpp","java","javascript","c"]'::jsonb),
         (1914, 'You are given a sorted array of integers numbers...', 'Two Sum II - Input Array Is Sorted', 'medium', 'full_program', 'contest_private', 3, '["python","cpp","java","javascript","c"]'::jsonb)
       ON CONFLICT (id) DO UPDATE SET
         title = EXCLUDED.title,

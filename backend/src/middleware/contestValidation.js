@@ -240,12 +240,9 @@ const validateUpdateContest = (req, res, next) => {
   }
 
   if (status !== undefined) {
-    if (status === 'published') {
-      errors.push("Contests cannot be published via generic update. Please use POST /api/contests/:id/publish.");
-    } else if (status === 'draft') {
-      errors.push("Contests cannot be reverted to draft via generic update. Please use POST /api/contests/:id/unpublish.");
-    } else if (status !== 'archived') {
-      errors.push(`Invalid contest status transition. To archive a contest, use POST /api/contests/:id/archive or status 'archived'.`);
+    const validStatuses = ['draft', 'published', 'archived'];
+    if (!validStatuses.includes(status)) {
+      errors.push(`Invalid contest status: '${status}'. Status must be one of: ${validStatuses.join(', ')}.`);
     }
   }
 

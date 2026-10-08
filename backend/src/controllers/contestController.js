@@ -288,6 +288,23 @@ const updateContest = async (req, res, next) => {
       });
     }
 
+    // Block publication / unpublication via generic update
+    if (status === 'published' && contest.status === 'draft') {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Contests cannot be published via generic update. Please use POST /api/contests/:id/publish.',
+      });
+    }
+
+    if (status === 'draft' && contest.status === 'published') {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Contests cannot be reverted to draft via generic update. Please use POST /api/contests/:id/unpublish.',
+      });
+    }
+
     // Verify chronological validity if only one date is updated
     if (startTime !== undefined || endTime !== undefined) {
       const effectiveStartTime = startTime !== undefined ? new Date(startTime) : new Date(contest.startTime);
