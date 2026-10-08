@@ -13,6 +13,13 @@ const getContestRuntimeState = (contest) => {
   if (contest.status === 'archived') return 'archived';
   if (contest.status === 'draft') return 'draft';
 
+  const isFinalized = Boolean(
+    contest.isRatingFinalized !== undefined ? contest.isRatingFinalized : contest.is_rating_finalized
+  );
+  if (isFinalized) {
+    return 'ended';
+  }
+
   const now = new Date();
   const startTime = new Date(contest.startTime || contest.start_time);
   const endTime = new Date(contest.endTime || contest.end_time);

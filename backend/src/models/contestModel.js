@@ -831,7 +831,7 @@ class ContestModel {
 
       // 1. Lock the contest row for update
       const cRes = await client.query(
-        'SELECT id, status, start_time AS "startTime", end_time AS "endTime" FROM contests WHERE id = $1 FOR UPDATE',
+        'SELECT id, status, start_time AS "startTime", end_time AS "endTime", is_rating_finalized AS "isRatingFinalized" FROM contests WHERE id = $1 FOR UPDATE',
         [id]
       );
 
@@ -841,6 +841,18 @@ class ContestModel {
       }
 
       const currentContest = cRes.rows[0];
+
+      // Finalized contest immutability: once finalized, a contest and its results cannot be deleted
+      if (currentContest.isRatingFinalized) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          locked: true,
+          finalized: true,
+          message: 'Cannot delete contest: Contest results have already been finalized and are permanently immutable.',
+        };
+      }
+
       const runtimeState = getContestRuntimeState(currentContest);
       if (runtimeState === 'running') {
         await client.query('ROLLBACK');

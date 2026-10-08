@@ -280,6 +280,15 @@ class RatingService {
 
       // 2. Caller Authorization Verification under DB lock
       if (operatorUser && !canManageResource(operatorUser, contest)) {
+        await AuditLogger.logAction({
+          actor: operatorUser,
+          action: 'PRIVILEGED_ACTION_DENIED',
+          resourceType: 'contest',
+          resourceId: contest.id,
+          outcome: 'denied',
+          metadata: { attemptedAction: 'CONTEST_FINALIZATION', reason: 'UNAUTHORIZED_OPERATOR' },
+          req,
+        });
         await client.query('ROLLBACK');
         const err = new Error('Forbidden: You do not have permission to finalize contest ratings');
         err.statusCode = 403;
@@ -288,6 +297,17 @@ class RatingService {
 
       // 3. Verify contest is published (not draft/archived)
       if (contest.status !== 'published') {
+        if (operatorUser) {
+          await AuditLogger.logAction({
+            actor: operatorUser,
+            action: 'PRIVILEGED_ACTION_DENIED',
+            resourceType: 'contest',
+            resourceId: contest.id,
+            outcome: 'denied',
+            metadata: { attemptedAction: 'CONTEST_FINALIZATION', reason: 'CONTEST_NOT_PUBLISHED', status: contest.status },
+            req,
+          });
+        }
         await client.query('ROLLBACK');
         const err = new Error('Cannot finalize ratings: Contest is in draft status');
         err.statusCode = 400;
@@ -344,6 +364,17 @@ class RatingService {
       // 4. Timing Check (Contest must be ended unless force = true for administrative needs)
       const runtimeState = getContestRuntimeState(contest);
       if (runtimeState !== 'ended' && !force) {
+        if (operatorUser) {
+          await AuditLogger.logAction({
+            actor: operatorUser,
+            action: 'PRIVILEGED_ACTION_DENIED',
+            resourceType: 'contest',
+            resourceId: contest.id,
+            outcome: 'denied',
+            metadata: { attemptedAction: 'CONTEST_FINALIZATION', reason: 'CONTEST_NOT_ENDED', runtimeState },
+            req,
+          });
+        }
         await client.query('ROLLBACK');
         const err = new Error(`Cannot finalize ratings while contest is '${runtimeState}'. Contest must be ended.`);
         err.statusCode = 400;
@@ -362,6 +393,17 @@ class RatingService {
       );
       const pendingCount = pendingRes.rows[0]?.count || 0;
       if (pendingCount > 0 && !force) {
+        if (operatorUser) {
+          await AuditLogger.logAction({
+            actor: operatorUser,
+            action: 'PRIVILEGED_ACTION_DENIED',
+            resourceType: 'contest',
+            resourceId: contest.id,
+            outcome: 'denied',
+            metadata: { attemptedAction: 'CONTEST_FINALIZATION', reason: 'PENDING_SUBMISSIONS', pendingCount },
+            req,
+          });
+        }
         await client.query('ROLLBACK');
         const err = new Error(
           `Cannot finalize contest: There are ${pendingCount} submission(s) currently being evaluated by the judge. Please wait for judging to complete before finalizing results.`

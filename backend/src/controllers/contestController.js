@@ -457,6 +457,23 @@ const deleteContest = async (req, res, next) => {
 
     // Atomic transactional deletion with row locking & audit logging
     const deleteResult = await ContestModel.deleteContestWithSafety(id, req.user, req);
+    if (deleteResult.finalized) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: id,
+        outcome: 'denied',
+        metadata: { attemptedAction: 'CONTEST_DELETED_AFTER_FINALIZATION' },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: deleteResult.message || 'Cannot delete contest: Contest results have already been finalized and are permanently immutable.',
+      });
+    }
+
     if (deleteResult.running) {
       return res.status(409).json({
         status: 'error',

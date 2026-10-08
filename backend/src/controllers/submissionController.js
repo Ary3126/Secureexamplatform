@@ -54,6 +54,17 @@ const submitSolution = async (req, res, next) => {
         });
       }
 
+      const isFinalized = Boolean(
+        contest.isRatingFinalized !== undefined ? contest.isRatingFinalized : contest.is_rating_finalized
+      );
+      if (isFinalized) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Submissions rejected: Contest has already been finalized.',
+        });
+      }
+
       const runtimeState = getContestRuntimeState(contest);
       if (runtimeState !== 'running') {
         return res.status(400).json({
@@ -203,6 +214,17 @@ const runSampleTests = async (req, res, next) => {
           status: 'error',
           statusCode: 400,
           message: 'Interactive runs are not allowed for draft / unpublished contests',
+        });
+      }
+
+      const isFinalized = Boolean(
+        contest.isRatingFinalized !== undefined ? contest.isRatingFinalized : contest.is_rating_finalized
+      );
+      if (isFinalized) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Interactive runs rejected: Contest has already been finalized.',
         });
       }
 
