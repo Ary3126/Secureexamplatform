@@ -43,12 +43,39 @@ class ContestModel {
   }
 
   /**
-   * Create a contest within an atomic transaction and audit log
+   * Create a contest within an atomic transaction with advisory locking and audit log
+   * Prevents rapid double-clicks and concurrent duplicate creation race conditions
    */
   static async createContestWithSafety(params, actor = null, req = null) {
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
+
+      // Acquire transaction-level advisory lock on (createdBy) to serialize concurrent contest creation by the same user
+      if (params.createdBy) {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`contest_create_${params.createdBy}`]);
+      }
+
+      // Check for accidental duplicate submission within 3 seconds by the same user with the same title under lock
+      if (params.title && params.createdBy) {
+        const dupRes = await client.query(`
+          SELECT id, title, created_at AS "createdAt"
+          FROM contests
+          WHERE created_by = $1
+            AND LOWER(TRIM(title)) = LOWER(TRIM($2))
+            AND created_at >= NOW() - interval '3 seconds'
+          LIMIT 1;
+        `, [params.createdBy, params.title]);
+
+        if (dupRes.rowCount > 0) {
+          await client.query('ROLLBACK');
+          return {
+            duplicate: true,
+            message: 'A contest with this title was just created. Please wait a moment before resubmitting.',
+            duplicateContestId: dupRes.rows[0].id,
+          };
+        }
+      }
 
       const contest = await ContestModel.createContest(params, client);
 
@@ -1428,9 +1455,9 @@ class ContestModel {
     return res.rowCount > 0;
   }
 
-  static async isProblemInContest(contestId, problemId) {
+  static async isProblemInContest(contestId, problemId, client = null) {
     const text = 'SELECT 1 FROM contest_problems WHERE contest_id = $1 AND problem_id = $2;';
-    const res = await db.query(text, [contestId, problemId]);
+    const res = await (client || db).query(text, [contestId, problemId]);
     return (res.rowCount || 0) > 0;
   }
 
@@ -1530,6 +1557,346 @@ class ContestModel {
     `;
     const res = await db.query(text, [contestId, userId]);
     return res.rowCount > 0;
+  }
+
+  /**
+   * Safely join a contest with transactional row locking, lifecycle verification, and duplicate resilience
+   * @param {number|string} contestId
+   * @param {number|string} userId
+   * @param {Object|null} actor
+   * @param {import('express').Request|null} req
+   */
+  static async joinContestWithSafety(contestId, userId, actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const cRes = await client.query(`
+        SELECT 
+          id, 
+          status, 
+          start_time AS "startTime", 
+          end_time AS "endTime", 
+          is_rating_finalized AS "isRatingFinalized"
+        FROM contests
+        WHERE id = $1
+        FOR UPDATE;
+      `, [contestId]);
+
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true };
+      }
+
+      const contest = cRes.rows[0];
+
+      if (contest.status === 'archived') {
+        await client.query('ROLLBACK');
+        return { success: false, archived: true, message: 'Cannot join contest: Contest is archived' };
+      }
+
+      if (contest.status !== 'published') {
+        await client.query('ROLLBACK');
+        return { success: false, notPublished: true, message: 'Cannot join contest: Contest is not yet published' };
+      }
+
+      if (contest.isRatingFinalized) {
+        await client.query('ROLLBACK');
+        return { success: false, finalized: true, message: 'Cannot join contest: Contest has already been finalized' };
+      }
+
+      const runtimeState = getContestRuntimeState(contest);
+      if (runtimeState === 'ended') {
+        await client.query('ROLLBACK');
+        return { success: false, ended: true, message: 'Cannot join contest: Contest has already ended' };
+      }
+
+      if (runtimeState === 'archived') {
+        await client.query('ROLLBACK');
+        return { success: false, archived: true, message: 'Cannot join contest: Contest is archived' };
+      }
+
+      // Check if already enrolled under row lock
+      const existingRes = await client.query(`
+        SELECT contest_id AS "contestId", user_id AS "userId", joined_at AS "joinedAt"
+        FROM contest_participants
+        WHERE contest_id = $1 AND user_id = $2;
+      `, [contestId, userId]);
+
+      if (existingRes.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          alreadyJoined: true,
+          participant: existingRes.rows[0],
+        };
+      }
+
+      const insRes = await client.query(`
+        INSERT INTO contest_participants (contest_id, user_id)
+        VALUES ($1, $2)
+        RETURNING contest_id AS "contestId", user_id AS "userId", joined_at AS "joinedAt";
+      `, [contestId, userId]);
+
+      const participant = insRes.rows[0];
+
+      if (actor && AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'PARTICIPANT_JOINED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'success',
+          metadata: { userId, contestId },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+      return { success: true, participant };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (rb) {}
+      if (err.code === '23505') {
+        const p = await ContestModel.findParticipant(contestId, userId);
+        return { success: false, alreadyJoined: true, participant: p || { contestId, userId } };
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Safely add a single participant with transactional row locking, role/status verification, and duplicate resilience
+   * @param {Object} params - { contestId, targetUserId }
+   * @param {Object|null} actor
+   * @param {import('express').Request|null} req
+   */
+  static async addParticipantWithSafety({ contestId, targetUserId }, actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const cRes = await client.query(`
+        SELECT 
+          id, 
+          status, 
+          start_time AS "startTime", 
+          end_time AS "endTime", 
+          is_rating_finalized AS "isRatingFinalized"
+        FROM contests
+        WHERE id = $1
+        FOR UPDATE;
+      `, [contestId]);
+
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true, resource: 'contest' };
+      }
+
+      const lockedContest = cRes.rows[0];
+      const runtimeState = getContestRuntimeState(lockedContest);
+
+      if (lockedContest.isRatingFinalized) {
+        await client.query('ROLLBACK');
+        return { success: false, locked: true, finalized: true, message: 'Cannot add participants: Contest has already been finalized' };
+      }
+
+      if (runtimeState === 'archived' || lockedContest.status === 'archived') {
+        await client.query('ROLLBACK');
+        return { success: false, locked: true, runtimeState: 'archived', message: 'Cannot add participants: Contest is archived' };
+      }
+
+      if (runtimeState === 'ended') {
+        await client.query('ROLLBACK');
+        return { success: false, locked: true, runtimeState: 'ended', message: 'Cannot add participants: Contest has already ended' };
+      }
+
+      // Verify student user
+      const uRes = await client.query(`
+        SELECT id, username, full_name AS "fullName", email, role, is_active AS "isActive"
+        FROM users
+        WHERE id = $1;
+      `, [targetUserId]);
+
+      if (uRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true, resource: 'student' };
+      }
+
+      const studentUser = uRes.rows[0];
+      if (studentUser.role !== 'student') {
+        await client.query('ROLLBACK');
+        return { success: false, invalidRole: true, studentUser };
+      }
+
+      if (!studentUser.isActive) {
+        await client.query('ROLLBACK');
+        return { success: false, inactive: true, studentUser };
+      }
+
+      // Check duplicate
+      const existing = await client.query(`
+        SELECT contest_id AS "contestId", user_id AS "userId", joined_at AS "joinedAt"
+        FROM contest_participants
+        WHERE contest_id = $1 AND user_id = $2;
+      `, [contestId, targetUserId]);
+
+      if (existing.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return { success: false, duplicate: true, studentUser, participant: existing.rows[0] };
+      }
+
+      const insRes = await client.query(`
+        INSERT INTO contest_participants (contest_id, user_id)
+        VALUES ($1, $2)
+        RETURNING contest_id AS "contestId", user_id AS "userId", joined_at AS "joinedAt";
+      `, [contestId, targetUserId]);
+
+      const participant = insRes.rows[0];
+
+      if (actor && AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'PARTICIPANT_ADDED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'success',
+          metadata: {
+            studentId: targetUserId,
+            studentUsername: studentUser.username,
+            contestId,
+            runtimeState,
+          },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+      return {
+        success: true,
+        participant: {
+          contestId: participant.contestId,
+          userId: participant.userId,
+          joinedAt: participant.joinedAt,
+          username: studentUser.username,
+          fullName: studentUser.fullName,
+          email: studentUser.email,
+        },
+      };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (rb) {}
+      if (err.code === '23505') {
+        const p = await ContestModel.findParticipant(contestId, targetUserId);
+        return { success: false, duplicate: true, participant: p || { contestId, userId: targetUserId } };
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Safely remove a single participant with transactional row locking, dependency preservation, and audit logging
+   * @param {Object} params - { contestId, targetUserId }
+   * @param {Object|null} actor
+   * @param {import('express').Request|null} req
+   */
+  static async removeParticipantWithSafety({ contestId, targetUserId }, actor = null, req = null) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const cRes = await client.query(`
+        SELECT 
+          id, 
+          status, 
+          start_time AS "startTime", 
+          end_time AS "endTime", 
+          is_rating_finalized AS "isRatingFinalized"
+        FROM contests
+        WHERE id = $1
+        FOR UPDATE;
+      `, [contestId]);
+
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true, resource: 'contest' };
+      }
+
+      const lockedContest = cRes.rows[0];
+      const runtimeState = getContestRuntimeState(lockedContest);
+
+      if (lockedContest.isRatingFinalized) {
+        await client.query('ROLLBACK');
+        return { success: false, locked: true, finalized: true, message: 'Cannot remove participants: Contest has already been finalized' };
+      }
+
+      if (runtimeState === 'archived' || lockedContest.status === 'archived') {
+        await client.query('ROLLBACK');
+        return { success: false, locked: true, runtimeState: 'archived', message: 'Cannot remove participants: Contest is archived' };
+      }
+
+      if (runtimeState === 'ended') {
+        await client.query('ROLLBACK');
+        return { success: false, locked: true, runtimeState: 'ended', message: 'Cannot remove participants: Contest has already ended' };
+      }
+
+      // Check if enrolled
+      const enrolledRes = await client.query(`
+        SELECT 1 FROM contest_participants WHERE contest_id = $1 AND user_id = $2;
+      `, [contestId, targetUserId]);
+
+      if (enrolledRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, notFound: true, resource: 'participant' };
+      }
+
+      // Check historical submissions under the transaction!
+      const subRes = await client.query(`
+        SELECT 1 FROM submissions WHERE contest_id = $1 AND user_id = $2 LIMIT 1;
+      `, [contestId, targetUserId]);
+
+      if (subRes.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          hasSubmissions: true,
+          message: 'Cannot remove participant: User has submitted solutions in this contest. Historical submission records must be preserved.',
+        };
+      }
+
+      await client.query(`
+        DELETE FROM contest_participants WHERE contest_id = $1 AND user_id = $2;
+      `, [contestId, targetUserId]);
+
+      if (actor && AuditLogger && AuditLogger.logAction) {
+        await AuditLogger.logAction({
+          actor,
+          action: 'PARTICIPANT_REMOVED',
+          resourceType: 'contest',
+          resourceId: contestId,
+          outcome: 'success',
+          metadata: {
+            studentId: targetUserId,
+            contestId,
+            runtimeState,
+          },
+          client,
+          req,
+        });
+      }
+
+      await client.query('COMMIT');
+      return { success: true };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (rb) {}
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   /**

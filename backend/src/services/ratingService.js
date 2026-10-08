@@ -516,7 +516,9 @@ class RatingService {
       }
 
       // 9. Persist rating history and user updates for each participant
-      for (const update of ratingUpdates) {
+      // Sort deterministically by userId ascending to guarantee uniform lock order and avoid cross-contest deadlocks
+      const updatesSortedByUserId = [...ratingUpdates].sort((a, b) => a.userId - b.userId);
+      for (const update of updatesSortedByUserId) {
         // Insert rating history entry FIRST
         await RatingModel.createRatingHistoryEntry(client, {
           userId: update.userId,

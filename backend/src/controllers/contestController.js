@@ -38,21 +38,6 @@ const createContest = async (req, res, next) => {
     } = req.body;
     const createdBy = req.user.id;
 
-    // Check for accidental duplicate submission within 3 seconds by the same user with the same title
-    const recentDuplicate = await ContestModel.findRecentDuplicate({
-      title,
-      createdBy,
-      withinSeconds: 3,
-    });
-    if (recentDuplicate) {
-      return res.status(409).json({
-        status: 'error',
-        statusCode: 409,
-        message: 'A contest with this title was just created. Please wait a moment before resubmitting.',
-        duplicateContestId: recentDuplicate.id,
-      });
-    }
-
     const contest = await ContestModel.createContestWithSafety({
       title,
       description,
@@ -66,6 +51,15 @@ const createContest = async (req, res, next) => {
           ? Math.max(0, parseInt(leaderboardFreezeMinutes, 10) || 0)
           : 60,
     }, req.user, req);
+
+    if (contest.duplicate) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: contest.message,
+        duplicateContestId: contest.duplicateContestId,
+      });
+    }
 
     return res.status(201).json({
       message: 'Contest created successfully in draft mode',
@@ -1592,9 +1586,10 @@ const joinContest = async (req, res, next) => {
 
     const userId = req.user.id;
 
-    // Verify contest existence
-    const contest = await ContestModel.findContestById(contestId);
-    if (!contest) {
+    // Transactional self-enrollment with row-level locking
+    const joinResult = await ContestModel.joinContestWithSafety(contestId, userId, req.user, req);
+
+    if (joinResult.notFound) {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
@@ -1602,86 +1597,52 @@ const joinContest = async (req, res, next) => {
       });
     }
 
-    // Check archived status
-    if (contest.status === 'archived') {
+    if (joinResult.archived) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
-        message: 'Cannot join contest: Contest is archived',
+        message: joinResult.message,
       });
     }
 
-    // Must be published (drafts are private / unenrollable)
-    if (contest.status !== 'published') {
+    if (joinResult.notPublished) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
-        message: 'Cannot join contest: Contest is not yet published',
+        message: joinResult.message,
       });
     }
 
-    // Check runtimeState (ended and archived contests cannot be joined)
-    const runtimeState = getContestRuntimeState(contest);
-    if (runtimeState === 'ended') {
+    if (joinResult.finalized) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
-        message: 'Cannot join contest: Contest has already ended',
+        message: joinResult.message,
       });
     }
 
-    if (runtimeState === 'archived') {
+    if (joinResult.ended) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
-        message: 'Cannot join contest: Contest is archived',
+        message: joinResult.message,
       });
     }
 
-    // Check if already joined (idempotency / duplicate check)
-    const existing = await ContestModel.findParticipant(contestId, userId);
-    if (existing) {
+    if (joinResult.alreadyJoined) {
       return res.status(409).json({
         status: 'error',
         statusCode: 409,
         message: 'You have already joined this contest',
-        participant: existing,
+        participant: joinResult.participant,
       });
     }
 
-    // Atomic insertion with catch for race condition unique violation (23505)
-    try {
-      const participant = await ContestModel.addParticipant(contestId, userId);
-
-      if (AuditLogger && AuditLogger.logAction) {
-        await AuditLogger.logAction({
-          actor: req.user,
-          action: 'PARTICIPANT_JOINED',
-          resourceType: 'contest',
-          resourceId: contest.id,
-          outcome: 'success',
-          metadata: { userId, contestId: contest.id },
-          req,
-        });
-      }
-
-      return res.status(201).json({
-        status: 'success',
-        message: 'Successfully joined contest',
-        participant,
-      });
-    } catch (dbErr) {
-      if (dbErr.code === '23505') {
-        const participant = await ContestModel.findParticipant(contestId, userId);
-        return res.status(409).json({
-          status: 'error',
-          statusCode: 409,
-          message: 'You have already joined this contest',
-          participant: participant || { contestId, userId },
-        });
-      }
-      throw dbErr;
-    }
+    return res.status(201).json({
+      status: 'success',
+      message: 'Successfully joined contest',
+      participant: joinResult.participant,
+    });
   } catch (error) {
     next(error);
   }
@@ -1888,7 +1849,7 @@ const addContestParticipant = async (req, res, next) => {
       });
     }
 
-    // 1. Verify contest existence
+    // 1. Verify contest existence and ownership
     const contest = await ContestModel.findContestById(contestId);
     if (!contest) {
       return res.status(404).json({
@@ -1918,27 +1879,18 @@ const addContestParticipant = async (req, res, next) => {
       });
     }
 
-    // 3. Lifecycle check: ended and archived contests are locked against adding participants
-    const runtimeState = getContestRuntimeState(contest);
-    if (runtimeState === 'archived' || contest.status === 'archived') {
-      return res.status(409).json({
+    // 3. Transactional add with row locking
+    const addResult = await ContestModel.addParticipantWithSafety({ contestId, targetUserId }, req.user, req);
+
+    if (addResult.notFound && addResult.resource === 'contest') {
+      return res.status(404).json({
         status: 'error',
-        statusCode: 409,
-        message: 'Cannot add participants: Contest is archived',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
       });
     }
 
-    if (runtimeState === 'ended') {
-      return res.status(409).json({
-        status: 'error',
-        statusCode: 409,
-        message: 'Cannot add participants: Contest has already ended',
-      });
-    }
-
-    // 4. Verify target user exists, is active, and has role 'student'
-    const studentUser = await UserModel.findUserById(targetUserId);
-    if (!studentUser) {
+    if (addResult.notFound && addResult.resource === 'student') {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
@@ -1946,79 +1898,44 @@ const addContestParticipant = async (req, res, next) => {
       });
     }
 
-    if (studentUser.role !== 'student') {
-      return res.status(400).json({
-        status: 'error',
-        statusCode: 400,
-        message: `Cannot add user '${studentUser.username}' as participant: Only student accounts can participate as competitors`,
-      });
-    }
-
-    const isTargetActive = studentUser.isActive !== undefined ? studentUser.isActive : (studentUser.is_active !== undefined ? studentUser.is_active : true);
-    if (!isTargetActive) {
-      return res.status(400).json({
-        status: 'error',
-        statusCode: 400,
-        message: `Cannot add student '${studentUser.username}': User account is inactive`,
-      });
-    }
-
-    // 5. Duplicate check
-    const existing = await ContestModel.findParticipant(contestId, targetUserId);
-    if (existing) {
+    if (addResult.locked) {
       return res.status(409).json({
         status: 'error',
         statusCode: 409,
-        message: `Student '${studentUser.username}' is already enrolled in this contest`,
-        participant: existing,
+        message: addResult.message,
       });
     }
 
-    // 6. Insert participant with race condition catch (code 23505)
-    try {
-      const participant = await ContestModel.addParticipant(contestId, targetUserId);
-
-      if (AuditLogger && AuditLogger.logAction) {
-        await AuditLogger.logAction({
-          actor: req.user,
-          action: 'PARTICIPANT_ADDED',
-          resourceType: 'contest',
-          resourceId: contestId,
-          outcome: 'success',
-          metadata: {
-            studentId: targetUserId,
-            studentUsername: studentUser.username,
-            contestId,
-            runtimeState,
-          },
-          req,
-        });
-      }
-
-      return res.status(201).json({
-        status: 'success',
-        message: `Successfully added ${studentUser.fullName || studentUser.username} to contest`,
-        participant: {
-          contestId: participant.contestId,
-          userId: participant.userId,
-          joinedAt: participant.joinedAt,
-          username: studentUser.username,
-          fullName: studentUser.fullName || studentUser.full_name,
-          email: studentUser.email,
-        },
+    if (addResult.invalidRole) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: `Cannot add user '${addResult.studentUser.username}' as participant: Only student accounts can participate as competitors`,
       });
-    } catch (dbErr) {
-      if (dbErr.code === '23505') {
-        const participant = await ContestModel.findParticipant(contestId, targetUserId);
-        return res.status(409).json({
-          status: 'error',
-          statusCode: 409,
-          message: `Student '${studentUser.username}' is already enrolled in this contest`,
-          participant: participant || { contestId, userId: targetUserId },
-        });
-      }
-      throw dbErr;
     }
+
+    if (addResult.inactive) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: `Cannot add student '${addResult.studentUser.username}': User account is inactive`,
+      });
+    }
+
+    if (addResult.duplicate) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: `Student '${addResult.studentUser?.username || 'user'}' is already enrolled in this contest`,
+        participant: addResult.participant,
+      });
+    }
+
+    return res.status(201).json({
+      status: 'success',
+      message: `Successfully added ${addResult.participant.fullName || addResult.participant.username} to contest`,
+      participant: addResult.participant,
+    });
   } catch (error) {
     next(error);
   }
@@ -2049,7 +1966,7 @@ const removeContestParticipant = async (req, res, next) => {
       });
     }
 
-    // 1. Verify contest existence
+    // 1. Verify contest existence and ownership
     const contest = await ContestModel.findContestById(contestId);
     if (!contest) {
       return res.status(404).json({
@@ -2079,27 +1996,18 @@ const removeContestParticipant = async (req, res, next) => {
       });
     }
 
-    // 3. Lifecycle check: ended and archived contests are locked against removing participants
-    const runtimeState = getContestRuntimeState(contest);
-    if (runtimeState === 'archived' || contest.status === 'archived') {
-      return res.status(409).json({
+    // 3. Transactional remove with row-level locking & dependency verification
+    const remResult = await ContestModel.removeParticipantWithSafety({ contestId, targetUserId }, req.user, req);
+
+    if (remResult.notFound && remResult.resource === 'contest') {
+      return res.status(404).json({
         status: 'error',
-        statusCode: 409,
-        message: 'Cannot remove participants: Contest is archived',
+        statusCode: 404,
+        message: `Contest with ID ${contestId} not found`,
       });
     }
 
-    if (runtimeState === 'ended') {
-      return res.status(409).json({
-        status: 'error',
-        statusCode: 409,
-        message: 'Cannot remove participants: Contest has already ended',
-      });
-    }
-
-    // 4. Verify participant currently exists in this contest
-    const existing = await ContestModel.findParticipant(contestId, targetUserId);
-    if (!existing) {
+    if (remResult.notFound && remResult.resource === 'participant') {
       return res.status(404).json({
         status: 'error',
         statusCode: 404,
@@ -2107,43 +2015,19 @@ const removeContestParticipant = async (req, res, next) => {
       });
     }
 
-    // 5. Dependency check: protect historical submissions and contest integrity
-    const subCheck = await db.query(
-      'SELECT 1 FROM submissions WHERE contest_id = $1 AND user_id = $2 LIMIT 1;',
-      [contestId, targetUserId]
-    );
-    if (subCheck.rowCount > 0) {
+    if (remResult.locked) {
       return res.status(409).json({
         status: 'error',
         statusCode: 409,
-        message: 'Cannot remove participant: User has submitted solutions in this contest. Historical submission records must be preserved.',
+        message: remResult.message,
       });
     }
 
-    // 6. Delete participant mapping atomically
-    const removed = await ContestModel.removeParticipant(contestId, targetUserId);
-    if (!removed) {
-      return res.status(404).json({
+    if (remResult.hasSubmissions) {
+      return res.status(409).json({
         status: 'error',
-        statusCode: 404,
-        message: `Participant with user ID ${targetUserId} not found in this contest`,
-      });
-    }
-
-    // 7. Audit log
-    if (AuditLogger && AuditLogger.logAction) {
-      await AuditLogger.logAction({
-        actor: req.user,
-        action: 'PARTICIPANT_REMOVED',
-        resourceType: 'contest',
-        resourceId: contestId,
-        outcome: 'success',
-        metadata: {
-          studentId: targetUserId,
-          contestId,
-          runtimeState,
-        },
-        req,
+        statusCode: 409,
+        message: remResult.message,
       });
     }
 

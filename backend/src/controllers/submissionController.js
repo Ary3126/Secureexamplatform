@@ -1,3 +1,4 @@
+const db = require('../config/db');
 const SubmissionModel = require('../models/submissionModel');
 const ContestModel = require('../models/contestModel');
 const ProblemModel = require('../models/problemModel');
@@ -12,6 +13,7 @@ const AuditLogger = require('../services/auditLogger');
  * @route POST /api/submissions
  */
 const submitSolution = async (req, res, next) => {
+  let client = null;
   try {
     const userId = req.user.id;
     const { contestId, problemId, language, sourceCode, codingMode } = req.body;
@@ -28,8 +30,17 @@ const submitSolution = async (req, res, next) => {
 
     let effectiveContestId = null;
     if (contestId) {
-      const contest = await ContestModel.findContestById(contestId);
-      if (!contest) {
+      client = await db.getClient();
+      await client.query('BEGIN');
+
+      const cRes = await client.query(
+        'SELECT id, title, status, start_time AS "startTime", end_time AS "endTime", is_rating_finalized AS "isRatingFinalized" FROM contests WHERE id = $1 FOR SHARE',
+        [contestId]
+      );
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(404).json({
           status: 'error',
           statusCode: 404,
@@ -37,8 +48,13 @@ const submitSolution = async (req, res, next) => {
         });
       }
 
-      const isAttached = await ContestModel.isProblemInContest(contestId, problemId);
+      const contest = cRes.rows[0];
+
+      const isAttached = await ContestModel.isProblemInContest(contestId, problemId, client);
       if (!isAttached) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -47,6 +63,9 @@ const submitSolution = async (req, res, next) => {
       }
 
       if (contest.status !== 'published') {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -58,6 +77,9 @@ const submitSolution = async (req, res, next) => {
         contest.isRatingFinalized !== undefined ? contest.isRatingFinalized : contest.is_rating_finalized
       );
       if (isFinalized) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -67,6 +89,9 @@ const submitSolution = async (req, res, next) => {
 
       const runtimeState = getContestRuntimeState(contest);
       if (runtimeState !== 'running') {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -75,8 +100,14 @@ const submitSolution = async (req, res, next) => {
       }
 
       if (req.user.role === 'student') {
-        const participant = await ContestModel.findParticipant(contestId, userId);
-        if (!participant) {
+        const partRes = await client.query(
+          'SELECT 1 FROM contest_participants WHERE contest_id = $1 AND user_id = $2',
+          [contestId, userId]
+        );
+        if (partRes.rowCount === 0) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
           await AuditLogger.logAction({
             actor: req.user,
             action: 'PRIVILEGED_ACTION_DENIED',
@@ -121,7 +152,13 @@ const submitSolution = async (req, res, next) => {
       codingMode: effectiveCodingMode,
       sourceCode,
       isSampleRun: false,
-    });
+    }, client);
+
+    if (client) {
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+    }
 
     // Audit log successful submission receipt
     await AuditLogger.logAction({
@@ -167,6 +204,13 @@ const submitSolution = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {}
+      client.release();
+      client = null;
+    }
     next(error);
   }
 };
@@ -176,6 +220,7 @@ const submitSolution = async (req, res, next) => {
  * @route POST /api/submissions/run
  */
 const runSampleTests = async (req, res, next) => {
+  let client = null;
   try {
     const userId = req.user.id;
     const { contestId, problemId, language, sourceCode, codingMode } = req.body;
@@ -191,8 +236,17 @@ const runSampleTests = async (req, res, next) => {
 
     let effectiveContestId = null;
     if (contestId) {
-      const contest = await ContestModel.findContestById(contestId);
-      if (!contest) {
+      client = await db.getClient();
+      await client.query('BEGIN');
+
+      const cRes = await client.query(
+        'SELECT id, title, status, start_time AS "startTime", end_time AS "endTime", is_rating_finalized AS "isRatingFinalized" FROM contests WHERE id = $1 FOR SHARE',
+        [contestId]
+      );
+      if (cRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(404).json({
           status: 'error',
           statusCode: 404,
@@ -200,8 +254,13 @@ const runSampleTests = async (req, res, next) => {
         });
       }
 
-      const isAttached = await ContestModel.isProblemInContest(contestId, problemId);
+      const contest = cRes.rows[0];
+
+      const isAttached = await ContestModel.isProblemInContest(contestId, problemId, client);
       if (!isAttached) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -210,6 +269,9 @@ const runSampleTests = async (req, res, next) => {
       }
 
       if (contest.status !== 'published') {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -221,6 +283,9 @@ const runSampleTests = async (req, res, next) => {
         contest.isRatingFinalized !== undefined ? contest.isRatingFinalized : contest.is_rating_finalized
       );
       if (isFinalized) {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -230,6 +295,9 @@ const runSampleTests = async (req, res, next) => {
 
       const runtimeState = getContestRuntimeState(contest);
       if (runtimeState !== 'running') {
+        await client.query('ROLLBACK');
+        client.release();
+        client = null;
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
@@ -238,8 +306,14 @@ const runSampleTests = async (req, res, next) => {
       }
 
       if (req.user.role === 'student') {
-        const participant = await ContestModel.findParticipant(contestId, userId);
-        if (!participant) {
+        const partRes = await client.query(
+          'SELECT 1 FROM contest_participants WHERE contest_id = $1 AND user_id = $2',
+          [contestId, userId]
+        );
+        if (partRes.rowCount === 0) {
+          await client.query('ROLLBACK');
+          client.release();
+          client = null;
           await AuditLogger.logAction({
             actor: req.user,
             action: 'PRIVILEGED_ACTION_DENIED',
@@ -283,7 +357,13 @@ const runSampleTests = async (req, res, next) => {
       codingMode: effectiveCodingMode,
       sourceCode,
       isSampleRun: true,
-    });
+    }, client);
+
+    if (client) {
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+    }
 
     const evaluatedSubmission = await new Promise((resolve) => {
       const enqueued = judgeQueue.addJob({
@@ -310,6 +390,13 @@ const runSampleTests = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {}
+      client.release();
+      client = null;
+    }
     next(error);
   }
 };
