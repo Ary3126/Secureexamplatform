@@ -5,6 +5,7 @@ const TestCaseModel = require('../models/testCaseModel');
 const { getContestRuntimeState } = require('../services/contestService');
 const SubmissionPerformanceService = require('../services/submissionPerformanceService');
 const judgeQueue = require('../judge/queue/judgeQueue');
+const AuditLogger = require('../services/auditLogger');
 
 /**
  * Submit code for official evaluation against all test cases
@@ -28,47 +29,64 @@ const submitSolution = async (req, res, next) => {
     let effectiveContestId = null;
     if (contestId) {
       const contest = await ContestModel.findContestById(contestId);
-      const isAttached = contest ? await ContestModel.isProblemInContest(contestId, problemId) : false;
+      if (!contest) {
+        return res.status(404).json({
+          status: 'error',
+          statusCode: 404,
+          message: `Contest with ID ${contestId} not found`,
+        });
+      }
 
-      if (contest && isAttached) {
-        if (contest.status !== 'published') {
-          return res.status(400).json({
-            status: 'error',
-            statusCode: 400,
-            message: 'Submissions are not allowed for draft / unpublished contests',
-          });
-        }
-
-        const runtimeState = getContestRuntimeState(contest);
-        if (runtimeState !== 'running') {
-          return res.status(400).json({
-            status: 'error',
-            statusCode: 400,
-            message: `Submissions rejected: Contest is currently '${runtimeState}'. Submissions are strictly accepted only during 'running' state.`,
-          });
-        }
-
-        if (req.user.role === 'student') {
-          const participant = await ContestModel.findParticipant(contestId, userId);
-          if (!participant) {
-            return res.status(403).json({
-              status: 'error',
-              statusCode: 403,
-              message: 'Forbidden: You must join the contest before you can submit code',
-            });
-          }
-        }
-        effectiveContestId = contest.id;
-      } else if (problem.accessScope === 'public' || problem.access_scope === 'public') {
-        // Public practice problem submitted outside attached contest -> treat as open practice
-        effectiveContestId = null;
-      } else {
+      const isAttached = await ContestModel.isProblemInContest(contestId, problemId);
+      if (!isAttached) {
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
           message: `Problem with ID ${problemId} does not belong to contest ${contestId}`,
         });
       }
+
+      if (contest.status !== 'published') {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Submissions are not allowed for draft / unpublished contests',
+        });
+      }
+
+      const runtimeState = getContestRuntimeState(contest);
+      if (runtimeState !== 'running') {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: `Submissions rejected: Contest is currently '${runtimeState}'. Submissions are strictly accepted only during 'running' state.`,
+        });
+      }
+
+      if (req.user.role === 'student') {
+        const participant = await ContestModel.findParticipant(contestId, userId);
+        if (!participant) {
+          await AuditLogger.logAction({
+            actor: req.user,
+            action: 'PRIVILEGED_ACTION_DENIED',
+            resourceType: 'contest',
+            resourceId: contestId,
+            outcome: 'denied',
+            metadata: {
+              attemptedAction: 'CONTEST_SUBMISSION_UNENROLLED',
+              problemId,
+              contestId,
+            },
+            req,
+          });
+          return res.status(403).json({
+            status: 'error',
+            statusCode: 403,
+            message: 'Forbidden: You must join the contest before you can submit code',
+          });
+        }
+      }
+      effectiveContestId = contest.id;
     } else {
       const isAuthorized = await ProblemModel.isUserAuthorizedForProblem(problem, req.user);
       if (!isAuthorized) {
@@ -92,6 +110,22 @@ const submitSolution = async (req, res, next) => {
       codingMode: effectiveCodingMode,
       sourceCode,
       isSampleRun: false,
+    });
+
+    // Audit log successful submission receipt
+    await AuditLogger.logAction({
+      actor: req.user,
+      action: 'SUBMISSION_CREATED',
+      resourceType: 'submission',
+      resourceId: submission.id,
+      outcome: 'success',
+      metadata: {
+        contestId: effectiveContestId,
+        problemId,
+        language,
+        codingMode: effectiveCodingMode,
+      },
+      req,
     });
 
     // 3. Push job to execution queue with user concurrency tracking
@@ -147,46 +181,64 @@ const runSampleTests = async (req, res, next) => {
     let effectiveContestId = null;
     if (contestId) {
       const contest = await ContestModel.findContestById(contestId);
-      const isAttached = contest ? await ContestModel.isProblemInContest(contestId, problemId) : false;
+      if (!contest) {
+        return res.status(404).json({
+          status: 'error',
+          statusCode: 404,
+          message: `Contest with ID ${contestId} not found`,
+        });
+      }
 
-      if (contest && isAttached) {
-        if (contest.status !== 'published') {
-          return res.status(400).json({
-            status: 'error',
-            statusCode: 400,
-            message: 'Interactive runs are not allowed for draft / unpublished contests',
-          });
-        }
-
-        const runtimeState = getContestRuntimeState(contest);
-        if (runtimeState !== 'running') {
-          return res.status(400).json({
-            status: 'error',
-            statusCode: 400,
-            message: `Interactive runs rejected: Contest is currently '${runtimeState}'.`,
-          });
-        }
-
-        if (req.user.role === 'student') {
-          const participant = await ContestModel.findParticipant(contestId, userId);
-          if (!participant) {
-            return res.status(403).json({
-              status: 'error',
-              statusCode: 403,
-              message: 'Forbidden: You must join the contest before you can run sample code',
-            });
-          }
-        }
-        effectiveContestId = contest.id;
-      } else if (problem.accessScope === 'public' || problem.access_scope === 'public') {
-        effectiveContestId = null;
-      } else {
+      const isAttached = await ContestModel.isProblemInContest(contestId, problemId);
+      if (!isAttached) {
         return res.status(400).json({
           status: 'error',
           statusCode: 400,
           message: `Problem with ID ${problemId} does not belong to contest ${contestId}`,
         });
       }
+
+      if (contest.status !== 'published') {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Interactive runs are not allowed for draft / unpublished contests',
+        });
+      }
+
+      const runtimeState = getContestRuntimeState(contest);
+      if (runtimeState !== 'running') {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: `Interactive runs rejected: Contest is currently '${runtimeState}'.`,
+        });
+      }
+
+      if (req.user.role === 'student') {
+        const participant = await ContestModel.findParticipant(contestId, userId);
+        if (!participant) {
+          await AuditLogger.logAction({
+            actor: req.user,
+            action: 'PRIVILEGED_ACTION_DENIED',
+            resourceType: 'contest',
+            resourceId: contestId,
+            outcome: 'denied',
+            metadata: {
+              attemptedAction: 'CONTEST_RUN_SAMPLE_UNENROLLED',
+              problemId,
+              contestId,
+            },
+            req,
+          });
+          return res.status(403).json({
+            status: 'error',
+            statusCode: 403,
+            message: 'Forbidden: You must join the contest before you can run sample code',
+          });
+        }
+      }
+      effectiveContestId = contest.id;
     } else {
       const isAuthorized = await ProblemModel.isUserAuthorizedForProblem(problem, req.user);
       if (!isAuthorized) {

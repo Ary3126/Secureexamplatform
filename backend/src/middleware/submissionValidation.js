@@ -153,20 +153,20 @@ const validateCreateSubmission = (req, res, next) => {
   const { contestId, problemId, language, sourceCode, codingMode } = req.body;
 
   if (contestId !== undefined && contestId !== null && contestId !== '') {
-    const parsedContestId = parseInt(contestId, 10);
-    if (isNaN(parsedContestId) || parsedContestId <= 0) {
+    const num = Number(contestId);
+    if (!Number.isInteger(num) || num <= 0 || num > 2147483647) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
         message: 'Validation failed: contestId must be a valid positive integer',
       });
     }
-    req.body.contestId = parsedContestId;
+    req.body.contestId = num;
   } else {
     req.body.contestId = null;
   }
 
-  if (!problemId) {
+  if (problemId === undefined || problemId === null || problemId === '') {
     return res.status(400).json({
       status: 'error',
       statusCode: 400,
@@ -174,15 +174,15 @@ const validateCreateSubmission = (req, res, next) => {
     });
   }
 
-  const parsedProblemId = parseInt(problemId, 10);
-  if (isNaN(parsedProblemId) || parsedProblemId <= 0) {
+  const numProb = Number(problemId);
+  if (!Number.isInteger(numProb) || numProb <= 0 || numProb > 2147483647) {
     return res.status(400).json({
       status: 'error',
       statusCode: 400,
       message: 'Validation failed: problemId must be a valid positive integer',
     });
   }
-  req.body.problemId = parsedProblemId;
+  req.body.problemId = numProb;
 
   if (!language || typeof language !== 'string') {
     return res.status(400).json({
@@ -231,15 +231,29 @@ const validateCreateSubmission = (req, res, next) => {
     });
   }
 
-  // Strip client injection attempts
+  // Strip client injection attempts (verdict, score, user identity, etc.)
   delete req.body.userId;
   delete req.body.user_id;
+  delete req.body.studentId;
+  delete req.body.student_id;
+  delete req.body.participantId;
+  delete req.body.participant_id;
   delete req.body.score;
   delete req.body.status;
+  delete req.body.result;
+  delete req.body.verdict;
   delete req.body.executionTime;
   delete req.body.execution_time;
+  delete req.body.runtime;
   delete req.body.memoryUsed;
   delete req.body.memory_used;
+  delete req.body.memory;
+  delete req.body.testCasesPassed;
+  delete req.body.test_cases_passed;
+  delete req.body.testCasesTotal;
+  delete req.body.test_cases_total;
+  delete req.body.isTestDate;
+  delete req.body.is_test_data;
 
   next();
 };
