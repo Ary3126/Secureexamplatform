@@ -853,6 +853,22 @@ async function runSubmissionStateSecurityTests() {
     const resJ6 = await request('GET', `/api/submissions/${charlieSubId}/code`, null, profBobToken);
     testAssert(resJ6.status === 403, 'J6. Non-owning Professor blocked from viewing student source code (403 BOLA)');
 
+    // J7. Oversized submission ID (> 2147483647) rejected with 400 Bad Request
+    const resJ7 = await request('GET', '/api/submissions/9999999999', null, stuCharlieToken);
+    testAssert(resJ7.status === 400, 'J7. Oversized submission ID (> 2147483647) rejected with 400 Bad Request');
+
+    // J8. Oversized submission ID on /code rejected with 400 Bad Request
+    const resJ8 = await request('GET', '/api/submissions/9999999999/code', null, stuCharlieToken);
+    testAssert(resJ8.status === 400, 'J8. Oversized submission ID on /code rejected with 400 Bad Request');
+
+    // J9. Oversized submission ID on /performance rejected with 400 Bad Request
+    const resJ9 = await request('GET', '/api/submissions/9999999999/performance', null, stuCharlieToken);
+    testAssert(resJ9.status === 400, 'J9. Oversized submission ID on /performance rejected with 400 Bad Request');
+
+    // J10. Oversized submission ID on /compare rejected with 400 Bad Request
+    const resJ10 = await request('GET', `/api/submissions/compare?left=9999999999&right=${charlieSubId}`, null, stuCharlieToken);
+    testAssert(resJ10.status === 400, 'J10. Oversized submission ID on /compare rejected with 400 Bad Request');
+
     // =============================================================
     // SECTION K: REPLAY / DUPLICATE BEHAVIOR
     // =============================================================

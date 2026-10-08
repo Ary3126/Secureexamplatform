@@ -309,7 +309,7 @@ const getSubmissionById = async (req, res, next) => {
     }
 
     const parsedId = parseInt(idStr, 10);
-    if (parsedId <= 0) {
+    if (parsedId <= 0 || parsedId > 2147483647) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -394,7 +394,7 @@ const getSubmissionCode = async (req, res, next) => {
     }
 
     const parsedId = parseInt(idStr, 10);
-    if (parsedId <= 0) {
+    if (parsedId <= 0 || parsedId > 2147483647) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -478,7 +478,7 @@ const getSubmissionPerformance = async (req, res, next) => {
     }
 
     const parsedId = parseInt(idStr, 10);
-    if (parsedId <= 0) {
+    if (parsedId <= 0 || parsedId > 2147483647) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -543,7 +543,7 @@ const getSubmissionDistribution = async (req, res, next) => {
     }
 
     const parsedId = parseInt(idStr, 10);
-    if (parsedId <= 0) {
+    if (parsedId <= 0 || parsedId > 2147483647) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -622,7 +622,7 @@ const compareSubmissions = async (req, res, next) => {
     const leftId = parseInt(leftStr, 10);
     const rightId = parseInt(rightStr, 10);
 
-    if (leftId <= 0 || rightId <= 0) {
+    if (leftId <= 0 || leftId > 2147483647 || rightId <= 0 || rightId > 2147483647) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
@@ -734,6 +734,13 @@ const getMySubmissionsForProblem = async (req, res, next) => {
     }
 
     const pId = parseInt(pIdStr, 10);
+    if (pId <= 0 || pId > 2147483647) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Invalid problem ID format',
+      });
+    }
     const submissions = await SubmissionModel.findUserSubmissionsForProblem(req.user.id, pId, 20);
     return res.status(200).json({ submissions });
   } catch (error) {

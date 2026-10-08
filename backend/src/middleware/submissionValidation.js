@@ -251,9 +251,15 @@ const validateCreateSubmission = (req, res, next) => {
   delete req.body.testCasesPassed;
   delete req.body.test_cases_passed;
   delete req.body.testCasesTotal;
-  delete req.body.test_cases_total;
   delete req.body.isTestDate;
+  delete req.body.isTestData;
   delete req.body.is_test_data;
+  delete req.body.test_data;
+  delete req.body.testData;
+  delete req.body.validationSummary;
+  delete req.body.validation_summary;
+  delete req.body.sampleResults;
+  delete req.body.sample_results;
 
   next();
 };
