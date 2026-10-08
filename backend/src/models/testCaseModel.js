@@ -74,6 +74,28 @@ class TestCaseModel {
     try {
       await client.query('BEGIN');
 
+      // Immutability check: cannot add test case if problem is attached to an actively running contest
+      if (actor) {
+        const runningContest = await client.query(`
+          SELECT c.id, c.title
+          FROM contest_problems cp
+          JOIN contests c ON cp.contest_id = c.id
+          WHERE cp.problem_id = $1
+            AND c.status = 'published'
+            AND CURRENT_TIMESTAMP >= c.start_time
+            AND CURRENT_TIMESTAMP < c.end_time
+          LIMIT 1;
+        `, [params.problemId]);
+        if (runningContest.rowCount > 0) {
+          await client.query('ROLLBACK');
+          return {
+            locked: true,
+            contestId: runningContest.rows[0].id,
+            message: `Cannot add test cases while problem is active in running contest "${runningContest.rows[0].title}" (#${runningContest.rows[0].id}).`,
+          };
+        }
+      }
+
       const testCase = await TestCaseModel.createTestCase(params, client);
 
       if (actor) {
@@ -251,6 +273,29 @@ class TestCaseModel {
         return null;
       }
 
+      const problemId = lockRes.rows[0].problem_id;
+      // Immutability check: cannot update test case if problem is attached to an actively running contest
+      if (actor) {
+        const runningContest = await client.query(`
+          SELECT c.id, c.title
+          FROM contest_problems cp
+          JOIN contests c ON cp.contest_id = c.id
+          WHERE cp.problem_id = $1
+            AND c.status = 'published'
+            AND CURRENT_TIMESTAMP >= c.start_time
+            AND CURRENT_TIMESTAMP < c.end_time
+          LIMIT 1;
+        `, [problemId]);
+        if (runningContest.rowCount > 0) {
+          await client.query('ROLLBACK');
+          return {
+            locked: true,
+            contestId: runningContest.rows[0].id,
+            message: `Cannot modify test cases while problem is active in running contest "${runningContest.rows[0].title}" (#${runningContest.rows[0].id}).`,
+          };
+        }
+      }
+
       const updated = await TestCaseModel.updateTestCase(id, updateData, client);
 
       if (actor && updated) {
@@ -304,6 +349,28 @@ class TestCaseModel {
         return false;
       }
       const resolvedProblemId = problemId || lockRes.rows[0].problem_id;
+
+      // Immutability check: cannot delete test case if problem is attached to an actively running contest
+      if (actor) {
+        const runningContest = await client.query(`
+          SELECT c.id, c.title
+          FROM contest_problems cp
+          JOIN contests c ON cp.contest_id = c.id
+          WHERE cp.problem_id = $1
+            AND c.status = 'published'
+            AND CURRENT_TIMESTAMP >= c.start_time
+            AND CURRENT_TIMESTAMP < c.end_time
+          LIMIT 1;
+        `, [resolvedProblemId]);
+        if (runningContest.rowCount > 0) {
+          await client.query('ROLLBACK');
+          return {
+            locked: true,
+            contestId: runningContest.rows[0].id,
+            message: `Cannot delete test cases while problem is active in running contest "${runningContest.rows[0].title}" (#${runningContest.rows[0].id}).`,
+          };
+        }
+      }
 
       const deleted = await TestCaseModel.deleteTestCase(id, client);
 

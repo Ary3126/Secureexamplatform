@@ -342,6 +342,7 @@ class ContestModel {
           start_time AS "startTime", 
           end_time AS "endTime", 
           status, 
+          is_rated AS "isRated",
           created_by AS "createdBy",
           is_rating_finalized AS "isRatingFinalized",
           leaderboard_freeze_enabled AS "leaderboardFreezeEnabled",
@@ -396,7 +397,7 @@ class ContestModel {
         };
       }
 
-      if (runtimeState === 'running' && isRated !== undefined && Boolean(isRated) !== Boolean(lockedContest.is_rated)) {
+      if (runtimeState === 'running' && isRated !== undefined && Boolean(isRated) !== Boolean(lockedContest.isRated)) {
         await client.query('ROLLBACK');
         return {
           success: false,
@@ -1425,6 +1426,36 @@ class ContestModel {
     const text = 'SELECT points FROM contest_problems WHERE contest_id = $1 AND problem_id = $2;';
     const res = await db.query(text, [contestId, problemId]);
     return res.rows[0] ? res.rows[0].points : null;
+  }
+
+  /**
+   * Check if a problem is attached to an actively running contest
+   * @param {number|string} problemId
+   * @param {Object|null} client - Optional transaction client
+   * @returns {Promise<{ isLocked: boolean, contestId?: number, contestTitle?: string, message?: string }>}
+   */
+  static async getActiveRunningContestForProblem(problemId, client = null) {
+    const text = `
+      SELECT c.id, c.title, c.start_time AS "startTime", c.end_time AS "endTime"
+      FROM contest_problems cp
+      JOIN contests c ON cp.contest_id = c.id
+      WHERE cp.problem_id = $1
+        AND c.status = 'published'
+        AND CURRENT_TIMESTAMP >= c.start_time
+        AND CURRENT_TIMESTAMP < c.end_time
+      LIMIT 1;
+    `;
+    const res = await (client || db).query(text, [problemId]);
+    if (res.rowCount > 0) {
+      const contest = res.rows[0];
+      return {
+        isLocked: true,
+        contestId: contest.id,
+        contestTitle: contest.title,
+        message: `Cannot modify problem or its test cases while it is active in running contest "${contest.title}" (#${contest.id}). Problem configuration is locked during contest execution.`,
+      };
+    }
+    return { isLocked: false };
   }
 
   static async getContestProblems(contestId) {

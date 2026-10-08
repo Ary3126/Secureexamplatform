@@ -624,6 +624,28 @@ class ProblemModel {
         return { notFound: true };
       }
 
+      // Immutability check: cannot modify problem if it is attached to an actively running contest
+      if (actor) {
+        const runningContest = await client.query(`
+          SELECT c.id, c.title
+          FROM contest_problems cp
+          JOIN contests c ON cp.contest_id = c.id
+          WHERE cp.problem_id = $1
+            AND c.status = 'published'
+            AND CURRENT_TIMESTAMP >= c.start_time
+            AND CURRENT_TIMESTAMP < c.end_time
+          LIMIT 1;
+        `, [id]);
+        if (runningContest.rowCount > 0) {
+          await client.query('ROLLBACK');
+          return {
+            locked: true,
+            contestId: runningContest.rows[0].id,
+            message: `Cannot modify problem while it is active in running contest "${runningContest.rows[0].title}" (#${runningContest.rows[0].id}). Problem configuration is locked during contest execution.`,
+          };
+        }
+      }
+
       const currentVer = parseInt(probRes.rows[0].version, 10) || 1;
       if (expectedVersion !== undefined && expectedVersion !== null) {
         const expVer = parseInt(expectedVersion, 10);
@@ -1161,6 +1183,29 @@ class ProblemModel {
       if (probRes.rowCount === 0) {
         await client.query('ROLLBACK');
         return { success: false, notFound: true };
+      }
+
+      // Check if problem is attached to an actively running contest
+      if (actor) {
+        const runningContest = await client.query(`
+          SELECT c.id, c.title
+          FROM contest_problems cp
+          JOIN contests c ON cp.contest_id = c.id
+          WHERE cp.problem_id = $1
+            AND c.status = 'published'
+            AND CURRENT_TIMESTAMP >= c.start_time
+            AND CURRENT_TIMESTAMP < c.end_time
+          LIMIT 1;
+        `, [id]);
+        if (runningContest.rowCount > 0) {
+          await client.query('ROLLBACK');
+          return {
+            success: false,
+            locked: true,
+            contestId: runningContest.rows[0].id,
+            message: `Cannot delete problem while it is active in running contest "${runningContest.rows[0].title}" (#${runningContest.rows[0].id}).`,
+          };
+        }
       }
 
       // 2. Authoritative check under row lock

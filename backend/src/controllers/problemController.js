@@ -1,6 +1,7 @@
 const ProblemModel = require('../models/problemModel');
 const TestCaseModel = require('../models/testCaseModel');
 const SavedProblemModel = require('../models/savedProblemModel');
+const ContestModel = require('../models/contestModel');
 const AuditLogger = require('../services/auditLogger');
 const { canManageResource } = require('../services/contestService');
 
@@ -323,6 +324,29 @@ const updateProblem = async (req, res, next) => {
       });
     }
 
+    // Problem immutability check: Problem cannot be modified while active in a running contest
+    const runningContestCheck = await ContestModel.getActiveRunningContestForProblem(parsedId);
+    if (runningContestCheck.isLocked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'PROBLEM_MUTATION_DURING_RUNNING_CONTEST',
+          contestId: runningContestCheck.contestId,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: runningContestCheck.message,
+        contestId: runningContestCheck.contestId,
+      });
+    }
+
     const expVer = expectedVersion !== undefined ? expectedVersion : (version !== undefined ? version : req.headers['if-match']);
     const isAdmin = req.user && (req.user.role === 'super_admin' || req.user.role === 'contest_admin');
     const effectiveScope = isAdmin && accessScope ? accessScope : undefined;
@@ -339,6 +363,15 @@ const updateProblem = async (req, res, next) => {
       accessScope: effectiveScope,
       testCases,
     }, req.user, req, expVer);
+
+    if (updateResult && updateResult.locked) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: updateResult.message,
+        contestId: updateResult.contestId,
+      });
+    }
 
     if (updateResult && updateResult.conflict) {
       return res.status(409).json({
@@ -720,8 +753,40 @@ const deleteProblem = async (req, res, next) => {
       });
     }
 
+    // Problem immutability check: Problem cannot be deleted while active in a running contest
+    const runningContestCheck = await ContestModel.getActiveRunningContestForProblem(parsedId);
+    if (runningContestCheck.isLocked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'PROBLEM_DELETE_DURING_RUNNING_CONTEST',
+          contestId: runningContestCheck.contestId,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: runningContestCheck.message,
+        contestId: runningContestCheck.contestId,
+      });
+    }
+
     // Atomic transactional deletion with row locking
     const deleteResult = await ProblemModel.deleteProblemWithSafety(id, req.user, req);
+    if (deleteResult.locked) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: deleteResult.message,
+        contestId: deleteResult.contestId,
+      });
+    }
+
     if (deleteResult.hasSubmissions) {
       return res.status(409).json({
         status: 'error',

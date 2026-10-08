@@ -1,5 +1,6 @@
 const TestCaseModel = require('../models/testCaseModel');
 const ProblemModel = require('../models/problemModel');
+const ContestModel = require('../models/contestModel');
 const AuditLogger = require('../services/auditLogger');
 const { canManageResource } = require('../services/contestService');
 
@@ -47,6 +48,29 @@ const createTestCase = async (req, res, next) => {
         status: 'error',
         statusCode: 403,
         message: 'Forbidden: You do not have permission to add test cases to this problem',
+      });
+    }
+
+    // Test case immutability check: cannot add test cases while problem is in a running contest
+    const runningContestCheck = await ContestModel.getActiveRunningContestForProblem(parsedProblemId);
+    if (runningContestCheck.isLocked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: parsedProblemId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'TEST_CASE_CREATE_DURING_RUNNING_CONTEST',
+          contestId: runningContestCheck.contestId,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: runningContestCheck.message,
+        contestId: runningContestCheck.contestId,
       });
     }
 
@@ -254,7 +278,40 @@ const updateTestCase = async (req, res, next) => {
       });
     }
 
+    // Test case immutability check: cannot modify test case while parent problem is in a running contest
+    const runningContestCheck = await ContestModel.getActiveRunningContestForProblem(testCase.problemId);
+    if (runningContestCheck.isLocked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'test_case',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'TEST_CASE_UPDATE_DURING_RUNNING_CONTEST',
+          problemId: testCase.problemId,
+          contestId: runningContestCheck.contestId,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: runningContestCheck.message,
+        contestId: runningContestCheck.contestId,
+      });
+    }
+
     const updated = await TestCaseModel.updateTestCaseWithSafety(parsedId, req.body, req.user, req);
+
+    if (updated && updated.locked) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: updated.message,
+        contestId: updated.contestId,
+      });
+    }
 
     return res.status(200).json({
       message: 'Test case updated successfully',
@@ -329,7 +386,39 @@ const deleteTestCase = async (req, res, next) => {
       });
     }
 
-    await TestCaseModel.deleteTestCaseWithSafety(parsedId, req.user, req, testCase.problemId);
+    // Test case immutability check: cannot delete test case while parent problem is in a running contest
+    const delRunningCheck = await ContestModel.getActiveRunningContestForProblem(testCase.problemId);
+    if (delRunningCheck.isLocked) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'test_case',
+        resourceId: parsedId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'TEST_CASE_DELETE_DURING_RUNNING_CONTEST',
+          problemId: testCase.problemId,
+          contestId: delRunningCheck.contestId,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: delRunningCheck.message,
+        contestId: delRunningCheck.contestId,
+      });
+    }
+
+    const deleteResult = await TestCaseModel.deleteTestCaseWithSafety(parsedId, req.user, req, testCase.problemId);
+    if (deleteResult && deleteResult.locked) {
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: deleteResult.message,
+        contestId: deleteResult.contestId,
+      });
+    }
 
     return res.status(200).json({
       message: 'Test case deleted successfully',

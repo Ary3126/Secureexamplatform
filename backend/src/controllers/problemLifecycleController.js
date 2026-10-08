@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ProblemModel = require('../models/problemModel');
 const TestCaseModel = require('../models/testCaseModel');
 const ProblemLifecycleModel = require('../models/problemLifecycleModel');
+const ContestModel = require('../models/contestModel');
 const AuditLogger = require('../services/auditLogger');
 const { canManageResource } = require('../services/contestService');
 
@@ -124,6 +125,31 @@ const rollbackVersion = async (req, res, next) => {
         req,
       });
       return res.status(403).json({ status: 'error', statusCode: 403, message: 'Forbidden: You do not have permission to rollback this problem' });
+    }
+
+    // Immutability check: cannot rollback problem version while attached to an actively running contest
+    const runningContestCheck = await ContestModel.getActiveRunningContestForProblem(problemId, client);
+    if (runningContestCheck.isLocked) {
+      await client.query('ROLLBACK');
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'problem',
+        resourceId: problemId,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'PROBLEM_ROLLBACK_DURING_RUNNING_CONTEST',
+          targetVersion,
+          contestId: runningContestCheck.contestId,
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: runningContestCheck.message,
+        contestId: runningContestCheck.contestId,
+      });
     }
 
     // Fetch target version snapshot
