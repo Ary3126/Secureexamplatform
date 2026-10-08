@@ -23,11 +23,61 @@ const validateCreateContest = (req, res, next) => {
     leaderboardFreezeEnabled,
     leaderboardFreezeMinutes,
     durationMinutes,
+    status,
+    state,
+    runtimeState,
+    isPublished,
+    is_published,
+    isRatingFinalized,
+    is_rating_finalized,
+    finalResultsSnapshot,
+    final_results_snapshot,
+    ratingsFinalizedAt,
+    ratings_finalized_at,
   } = req.body;
   const errors = [];
 
+  // Initial State Security: Contests can only be initialized as draft
+  if (status !== undefined && status !== 'draft') {
+    errors.push(`Invalid initial contest status: '${status}'. Contests can only be created in 'draft' status.`);
+  }
+
+  if (state !== undefined && state !== 'draft') {
+    errors.push(`Invalid initial contest state: '${state}'. Contests can only be created in 'draft' state.`);
+  }
+
+  if (runtimeState !== undefined && runtimeState !== 'draft') {
+    errors.push(`Direct assignment of runtimeState is not permitted. Contests are initialized in 'draft' state.`);
+  }
+
+  if (isPublished !== undefined && (isPublished === true || isPublished === 'true')) {
+    errors.push('Cannot set isPublished to true at creation. Contests must be published via POST /api/contests/:id/publish.');
+  }
+
+  if (is_published !== undefined && (is_published === true || is_published === 'true')) {
+    errors.push('Cannot set is_published to true at creation. Contests must be published via POST /api/contests/:id/publish.');
+  }
+
+  if (isRatingFinalized !== undefined && (isRatingFinalized === true || isRatingFinalized === 'true')) {
+    errors.push('Cannot finalize ratings at contest creation.');
+  }
+
+  if (is_rating_finalized !== undefined && (is_rating_finalized === true || is_rating_finalized === 'true')) {
+    errors.push('Cannot finalize ratings at contest creation.');
+  }
+
+  if (finalResultsSnapshot !== undefined || final_results_snapshot !== undefined) {
+    errors.push('Cannot provide finalResultsSnapshot at contest creation.');
+  }
+
+  if (ratingsFinalizedAt !== undefined || ratings_finalized_at !== undefined) {
+    errors.push('Cannot set ratingsFinalizedAt at contest creation.');
+  }
+
   if (!title || typeof title !== 'string' || title.trim().length < 3 || title.trim().length > 200) {
     errors.push('Contest title is required and must be between 3 and 200 characters.');
+  } else if (title.includes('\0')) {
+    errors.push('Contest title must not contain null bytes.');
   }
 
   if (!startTime || !isValidDate(startTime)) {
@@ -54,6 +104,8 @@ const validateCreateContest = (req, res, next) => {
   if (description !== undefined && description !== null) {
     if (typeof description !== 'string') {
       errors.push('Description must be a valid text string.');
+    } else if (description.includes('\0')) {
+      errors.push('Description must not contain null bytes.');
     } else if (description.trim().length > 10000) {
       errors.push('Description cannot exceed 10000 characters.');
     }
@@ -120,12 +172,28 @@ const validateCreateContest = (req, res, next) => {
  * Validate contest update payload
  */
 const validateUpdateContest = (req, res, next) => {
-  const { title, startTime, endTime, description, isRated, leaderboardFreezeEnabled, leaderboardFreezeMinutes, status } = req.body;
+  const {
+    title,
+    startTime,
+    endTime,
+    description,
+    isRated,
+    leaderboardFreezeEnabled,
+    leaderboardFreezeMinutes,
+    status,
+    isRatingFinalized,
+    is_rating_finalized,
+    finalResultsSnapshot,
+    final_results_snapshot,
+  } = req.body;
   const errors = [];
+
 
   if (title !== undefined) {
     if (typeof title !== 'string' || title.trim().length < 3 || title.trim().length > 200) {
       errors.push('Contest title must be between 3 and 200 characters.');
+    } else if (title.includes('\0')) {
+      errors.push('Contest title must not contain null bytes.');
     }
   }
 
@@ -145,6 +213,8 @@ const validateUpdateContest = (req, res, next) => {
 
   if (description !== undefined && typeof description !== 'string') {
     errors.push('Description must be a valid text string.');
+  } else if (description !== undefined && description.includes('\0')) {
+    errors.push('Description must not contain null bytes.');
   }
 
   if (isRated !== undefined && typeof isRated !== 'boolean') {
@@ -170,9 +240,12 @@ const validateUpdateContest = (req, res, next) => {
   }
 
   if (status !== undefined) {
-    const validStatuses = ['draft', 'published', 'archived'];
-    if (!validStatuses.includes(status)) {
-      errors.push(`Invalid contest status: '${status}'. Status must be one of: ${validStatuses.join(', ')}.`);
+    if (status === 'published') {
+      errors.push("Contests cannot be published via generic update. Please use POST /api/contests/:id/publish.");
+    } else if (status === 'draft') {
+      errors.push("Contests cannot be reverted to draft via generic update. Please use POST /api/contests/:id/unpublish.");
+    } else if (status !== 'archived') {
+      errors.push(`Invalid contest status transition. To archive a contest, use POST /api/contests/:id/archive or status 'archived'.`);
     }
   }
 

@@ -288,6 +288,20 @@ const updateContest = async (req, res, next) => {
       });
     }
 
+    // Verify chronological validity if only one date is updated
+    if (startTime !== undefined || endTime !== undefined) {
+      const effectiveStartTime = startTime !== undefined ? new Date(startTime) : new Date(contest.startTime);
+      const effectiveEndTime = endTime !== undefined ? new Date(endTime) : new Date(contest.endTime);
+      if (effectiveEndTime <= effectiveStartTime) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Contest update validation failed',
+          errors: ['Contest end time must be later than the start time.'],
+        });
+      }
+    }
+
     // 2. Perform atomic update with row locking & audit logging
     const updateResult = await ContestModel.updateContestWithSafety(id, {
       title,
