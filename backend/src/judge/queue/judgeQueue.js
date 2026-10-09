@@ -43,9 +43,10 @@ class JudgeQueue extends EventEmitter {
       return false;
     }
 
-    // 2. Idempotency: avoid queueing if currently running
-    if (this.activeSubmissions.has(submissionId)) {
-      console.warn('[JUDGE QUEUE] Submission ' + submissionId + ' is already active. Skipping duplicate enqueue.');
+    // 2. Idempotency: avoid queueing if currently running or already in queue buffer
+    const isAlreadyQueued = this.queue.some((job) => job.submissionId === submissionId);
+    if (this.activeSubmissions.has(submissionId) || isAlreadyQueued) {
+      console.warn('[JUDGE QUEUE] Submission ' + submissionId + ' is already active or queued. Skipping duplicate enqueue.');
       return false;
     }
 
@@ -129,6 +130,22 @@ class JudgeQueue extends EventEmitter {
       if (!submission) {
         console.warn('[JUDGE WORKER] Submission ' + submissionId + ' not found in database.');
         if (resolveCallback) resolveCallback(null);
+        return;
+      }
+
+      // Guard: do not re-evaluate submissions that are already in a terminal state
+      const TERMINAL_STATUSES = [
+        'accepted',
+        'wrong_answer',
+        'time_limit_exceeded',
+        'memory_limit_exceeded',
+        'compilation_error',
+        'runtime_error',
+        'system_error',
+      ];
+      if (!isSampleRun && TERMINAL_STATUSES.includes(submission.status)) {
+        console.warn(`[JUDGE WORKER] Submission ${submissionId} is already in terminal state '${submission.status}'. Skipping duplicate execution.`);
+        if (resolveCallback) resolveCallback(submission);
         return;
       }
 
