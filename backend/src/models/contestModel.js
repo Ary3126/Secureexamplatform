@@ -63,7 +63,7 @@ class ContestModel {
           FROM contests
           WHERE created_by = $1
             AND LOWER(TRIM(title)) = LOWER(TRIM($2))
-            AND created_at >= NOW() - interval '3 seconds'
+            AND created_at >= clock_timestamp() - interval '5 seconds'
           LIMIT 1;
         `, [params.createdBy, params.title]);
 
@@ -571,7 +571,7 @@ class ContestModel {
       await client.query('BEGIN');
 
       const cRes = await client.query(
-        'SELECT id, status FROM contests WHERE id = $1 FOR UPDATE',
+        'SELECT id, status, start_time AS "startTime", end_time AS "endTime", is_rating_finalized AS "isRatingFinalized" FROM contests WHERE id = $1 FOR UPDATE',
         [id]
       );
       if (cRes.rowCount === 0) {
@@ -579,9 +579,36 @@ class ContestModel {
         return { success: false, notFound: true };
       }
 
-      if (cRes.rows[0].status !== 'draft') {
+      const contestRow = cRes.rows[0];
+
+      if (contestRow.status !== 'draft') {
         await client.query('ROLLBACK');
-        return { success: false, invalidStatus: true, currentStatus: cRes.rows[0].status };
+        return { success: false, invalidStatus: true, currentStatus: contestRow.status };
+      }
+
+      if (contestRow.isRatingFinalized) {
+        await client.query('ROLLBACK');
+        return { success: false, finalized: true, message: 'Cannot publish a finalized contest' };
+      }
+
+      const now = new Date();
+      const endTime = new Date(contestRow.endTime);
+      if (endTime <= now) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          pastEnd: true,
+          message: 'Cannot publish contest: Contest end time has already passed',
+        };
+      }
+
+      if (endTime <= new Date(contestRow.startTime)) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          invalidTiming: true,
+          message: 'Cannot publish contest: Contest end time must be after start time',
+        };
       }
 
       const pCountRes = await client.query(
@@ -639,7 +666,7 @@ class ContestModel {
       await client.query('BEGIN');
 
       const cRes = await client.query(
-        'SELECT id, title, status, start_time AS "startTime", end_time AS "endTime", created_by AS "createdBy" FROM contests WHERE id = $1 FOR UPDATE',
+        'SELECT id, title, status, start_time AS "startTime", end_time AS "endTime", created_by AS "createdBy", is_rating_finalized AS "isRatingFinalized" FROM contests WHERE id = $1 FOR UPDATE',
         [id]
       );
       if (cRes.rowCount === 0) {
@@ -648,6 +675,14 @@ class ContestModel {
       }
 
       const currentContest = cRes.rows[0];
+      if (currentContest.isRatingFinalized) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          finalized: true,
+          message: 'Cannot unpublish contest: Contest has already been finalized.',
+        };
+      }
       if (currentContest.status !== 'published') {
         await client.query('ROLLBACK');
         return {
@@ -1614,6 +1649,29 @@ class ContestModel {
       if (runtimeState === 'archived') {
         await client.query('ROLLBACK');
         return { success: false, archived: true, message: 'Cannot join contest: Contest is archived' };
+      }
+
+      // Verify student user in DB under transaction
+      const uRes = await client.query(`
+        SELECT id, username, full_name AS "fullName", role, is_active AS "isActive"
+        FROM users
+        WHERE id = $1;
+      `, [userId]);
+
+      if (uRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, userNotFound: true, message: 'User not found' };
+      }
+
+      const uRow = uRes.rows[0];
+      if (uRow.role !== 'student') {
+        await client.query('ROLLBACK');
+        return { success: false, invalidRole: true, message: 'Only student accounts can participate as competitors' };
+      }
+
+      if (uRow.isActive === false) {
+        await client.query('ROLLBACK');
+        return { success: false, inactiveUser: true, message: 'User account is inactive' };
       }
 
       // Check if already enrolled under row lock

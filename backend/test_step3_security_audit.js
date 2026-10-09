@@ -266,6 +266,9 @@ async function runSecurityAuditTests() {
     const stdViewTests = await request('GET', `/api/problems/${problemAId}/test-cases`, null, tokenStudentA);
     assert(stdViewTests.status === 403, 'Student cannot access administrative test-case endpoint (403 Forbidden)');
 
+    // Publish problem so it is available in the public catalog for student inspection
+    await db.query("UPDATE problems SET is_published = true, access_scope = 'public', published_at = CURRENT_TIMESTAMP WHERE id = $1", [problemAId]);
+
     // -----------------------------------------------------------
     // SECTION 3: SENSITIVE DATA EXPOSURE AUDIT
     // -----------------------------------------------------------
@@ -409,6 +412,24 @@ async function runSecurityAuditTests() {
     console.error('Fatal test error:', err);
     failed++;
   } finally {
+    try {
+      if (submissionAId) await db.query('DELETE FROM submissions WHERE id = $1', [submissionAId]);
+      if (problemAId) {
+        await db.query('DELETE FROM test_cases WHERE problem_id = $1', [problemAId]);
+        await db.query('DELETE FROM problems WHERE id = $1', [problemAId]);
+      }
+      if (contestAId) {
+        await db.query('DELETE FROM contest_participants WHERE contest_id = $1', [contestAId]);
+        await db.query('DELETE FROM contest_problems WHERE contest_id = $1', [contestAId]);
+        await db.query('DELETE FROM contests WHERE id = $1', [contestAId]);
+      }
+      const testUids = [userStudentAId, userStudentBId, userProfAId, userProfBId].filter(Boolean);
+      if (testUids.length > 0) {
+        await db.query('DELETE FROM users WHERE id = ANY($1::int[])', [testUids]);
+      }
+    } catch (cleanupErr) {
+      console.warn('Cleanup warning:', cleanupErr.message);
+    }
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }

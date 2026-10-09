@@ -552,12 +552,53 @@ const publishContest = async (req, res, next) => {
       });
     }
 
+    if (contest.isRatingFinalized || contest.is_rating_finalized) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Cannot publish contest: Contest has already been finalized',
+      });
+    }
+
+    const now = new Date();
+    if (contest.endTime && new Date(contest.endTime) <= now) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: 'Cannot publish contest: Contest end time has already passed',
+      });
+    }
+
     const publishResult = await ContestModel.publishContestWithSafety(contestIdNum, req.user, req);
     if (publishResult.invalidStatus) {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
         message: `Cannot publish contest: Contest is already ${publishResult.currentStatus}`,
+      });
+    }
+
+    if (publishResult.finalized) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: publishResult.message || 'Cannot publish contest: Contest has already been finalized',
+      });
+    }
+
+    if (publishResult.pastEnd) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: publishResult.message || 'Cannot publish contest: Contest end time has already passed',
+      });
+    }
+
+    if (publishResult.invalidTiming) {
+      return res.status(400).json({
+        status: 'error',
+        statusCode: 400,
+        message: publishResult.message || 'Cannot publish contest: Contest end time must be after start time',
       });
     }
 
@@ -636,6 +677,26 @@ const unpublishContest = async (req, res, next) => {
         status: 'error',
         statusCode: 404,
         message: `Contest with ID ${contestIdNum} not found`,
+      });
+    }
+
+    if (result.finalized) {
+      await AuditLogger.logAction({
+        actor: req.user,
+        action: 'PRIVILEGED_ACTION_DENIED',
+        resourceType: 'contest',
+        resourceId: contestIdNum,
+        outcome: 'denied',
+        metadata: {
+          attemptedAction: 'CONTEST_UNPUBLISHED',
+          reason: 'finalized',
+        },
+        req,
+      });
+      return res.status(409).json({
+        status: 'error',
+        statusCode: 409,
+        message: result.message || 'Cannot unpublish contest: Contest has already been finalized',
       });
     }
 
@@ -1626,6 +1687,30 @@ const joinContest = async (req, res, next) => {
         status: 'error',
         statusCode: 400,
         message: joinResult.message,
+      });
+    }
+
+    if (joinResult.userNotFound) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+
+    if (joinResult.invalidRole) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: Contest self-enrollment is reserved for students. Administrative users do not participate as competitors.',
+      });
+    }
+
+    if (joinResult.inactiveUser) {
+      return res.status(403).json({
+        status: 'error',
+        statusCode: 403,
+        message: 'Forbidden: Inactive or suspended student accounts cannot enroll in contests.',
       });
     }
 
