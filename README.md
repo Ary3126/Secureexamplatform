@@ -78,7 +78,7 @@ SecureExamPlatform/
 │   ├── scripts/                # Frontend test runner utilities
 │   └── vite.config.js          # Vite configuration
 │
-├── report/                     # Architectural reports & milestone documentation
+├── reports/                    # Architectural reports & milestone documentation
 └── README.md                   # Project documentation
 ```
 

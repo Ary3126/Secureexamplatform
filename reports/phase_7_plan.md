@@ -29,13 +29,13 @@ The Admin Panel is the **Platform Governor Console** — the control center for 
 
 | Report | Location | Status |
 |---|---|---|
-| Phase 1 (Backend Foundation) | `report/phase_1_report.md` | Reviewed |
-| Phase 2 (Auth & RBAC) | `report/phase_2_report.md` | Reviewed |
-| Phase 3 (Contests & Problems) | `report/phase_3_report.md` | Reviewed |
-| Phase 4 (Online Judge) | `report/phase_4_report.md` | Reviewed |
-| Phase 4A / 4A Extra | `report/phase_4a_report.md`, `report/phase_4a_extra_report.md` | Reviewed |
-| Phase 5 (Frontend Platform) | `report/phase_5_report.md` | Reviewed |
-| Phase 6 (Stabilization) | `report/phase_6_report.md`, `reports/phase_6_report.md` | Reviewed |
+| Phase 1 (Backend Foundation) | `reports/phase_1_report.md` | Reviewed |
+| Phase 2 (Auth & RBAC) | `reports/phase_2_report.md` | Reviewed |
+| Phase 3 (Contests & Problems) | `reports/phase_3_report.md` | Reviewed |
+| Phase 4 (Online Judge) | `reports/phase_4_report.md` | Reviewed |
+| Phase 4A / 4A Extra | `reports/phase_4a_report.md`, `reports/phase_4a_extra_report.md` | Reviewed |
+| Phase 5 (Frontend Platform) | `reports/phase_5_report.md` | Reviewed |
+| Phase 6 (Stabilization) | `reports/phase_6_report.md` | Reviewed |
 
 ### Historical Context Summary
 

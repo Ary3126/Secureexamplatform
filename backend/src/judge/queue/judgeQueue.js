@@ -88,34 +88,32 @@ class JudgeQueue extends EventEmitter {
    * Process next available job in the queue
    */
   async processNext() {
-    if (this.runningCount >= this.concurrency || this.queue.length === 0) {
-      return;
-    }
+    while (this.runningCount < this.concurrency && this.queue.length > 0) {
+      const job = this.queue.shift();
+      this.runningCount++;
+      this.activeSubmissions.add(job.submissionId);
 
-    const job = this.queue.shift();
-    this.runningCount++;
-    this.activeSubmissions.add(job.submissionId);
+      this.executeJob(job)
+        .catch((err) => {
+          console.error('[JUDGE WORKER ERROR] Job ' + job.submissionId + ' failed:', err);
+        })
+        .finally(() => {
+          this.runningCount--;
+          this.activeSubmissions.delete(job.submissionId);
 
-    this.executeJob(job)
-      .catch((err) => {
-        console.error('[JUDGE WORKER ERROR] Job ' + job.submissionId + ' failed:', err);
-      })
-      .finally(() => {
-        this.runningCount--;
-        this.activeSubmissions.delete(job.submissionId);
-
-        // Decrement user active job count
-        if (job.userId) {
-          const current = this.userActiveJobs.get(job.userId) || 1;
-          if (current <= 1) {
-            this.userActiveJobs.delete(job.userId);
-          } else {
-            this.userActiveJobs.set(job.userId, current - 1);
+          // Decrement user active job count
+          if (job.userId) {
+            const current = this.userActiveJobs.get(job.userId) || 1;
+            if (current <= 1) {
+              this.userActiveJobs.delete(job.userId);
+            } else {
+              this.userActiveJobs.set(job.userId, current - 1);
+            }
           }
-        }
 
-        this.processNext();
-      });
+          this.processNext();
+        });
+    }
   }
 
   /**
