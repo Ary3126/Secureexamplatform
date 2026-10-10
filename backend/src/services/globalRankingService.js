@@ -537,7 +537,8 @@ class GlobalRankingService {
       where.push(`snapshot_date = $${params.length}`);
     }
 
-    params.push(limit);
+    const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 100));
+    params.push(safeLimit);
     const sql = `
       SELECT 
         ls.id,

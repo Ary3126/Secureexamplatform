@@ -9,7 +9,10 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const { authenticate } = require('../middleware/authMiddleware');
 const { authorizeRoles } = require('../middleware/roleMiddleware');
-const { mediumProtectionRateLimiter } = require('../middleware/rateLimitMiddleware');
+const {
+  mediumProtectionRateLimiter,
+  adminActionRateLimiter,
+} = require('../middleware/rateLimitMiddleware');
 
 // All admin routes require authentication and super_admin role
 router.use(authenticate);
@@ -44,25 +47,25 @@ router.get('/users/:id', adminController.getUserById);
  * @route POST /api/admin/users
  * Super Admin create user with explicit role and status
  */
-router.post('/users', adminController.createUser);
+router.post('/users', adminActionRateLimiter, adminController.createUser);
 
 /**
  * @route PUT /api/admin/users/:id
  * Super Admin update user profile details (whitelisted fields only)
  */
-router.put('/users/:id', adminController.updateUser);
+router.put('/users/:id', adminActionRateLimiter, adminController.updateUser);
 
 /**
  * @route PATCH /api/admin/users/:id/role
  * Super Admin update user role with self-lockout protection
  */
-router.patch('/users/:id/role', adminController.updateUserRole);
+router.patch('/users/:id/role', adminActionRateLimiter, adminController.updateUserRole);
 
 /**
  * @route PATCH /api/admin/users/:id/status
  * Super Admin update user status with self-lockout protection
  */
-router.patch('/users/:id/status', adminController.updateUserStatus);
+router.patch('/users/:id/status', adminActionRateLimiter, adminController.updateUserStatus);
 
 // ==========================================
 // PHASE 7.4.1 ADMIN PROBLEM MANAGEMENT
@@ -86,7 +89,7 @@ router.get('/problems/:id', adminController.getProblemById);
  * @route POST /api/admin/problems/:id/archive
  * Super Admin archive problem with audit logging and dependency verification
  */
-router.post('/problems/:id/archive', problemLifecycleController.archiveProblem);
+router.post('/problems/:id/archive', adminActionRateLimiter, problemLifecycleController.archiveProblem);
 
 // ==========================================
 // PHASE 5.9.6 PROBLEM REVIEW GOVERNANCE QUEUE

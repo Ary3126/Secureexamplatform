@@ -158,8 +158,27 @@ const authRateLimiter = createRateLimiter(RATE_LIMIT_CONFIG.AUTH);
 const runCodeRateLimiter = createRateLimiter(RATE_LIMIT_CONFIG.RUN_CODE);
 const submitCodeRateLimiter = createRateLimiter(RATE_LIMIT_CONFIG.SUBMIT_CODE);
 const contestActionRateLimiter = createRateLimiter(RATE_LIMIT_CONFIG.CONTEST_ACTION);
+const adminActionRateLimiter = createRateLimiter(RATE_LIMIT_CONFIG.ADMIN_ACTION || {
+  name: 'ADMIN_ACTION',
+  windowMs: 60000,
+  maxRequests: 30,
+  message: 'Too many administrative action requests. Please slow down.',
+  failClosed: false,
+});
 const mediumProtectionRateLimiter = createRateLimiter(RATE_LIMIT_CONFIG.MEDIUM_PROTECTION);
 const publicReadRateLimiter = createRateLimiter(RATE_LIMIT_CONFIG.PUBLIC_READ);
+
+/**
+ * Reset in-memory rate limit counters (for testing and manual administrative release)
+ * @param {string} [key] - Specific key to delete, or omit to clear all stores
+ */
+function resetRateLimits(key) {
+  if (key) {
+    rateLimitStores.delete(key);
+  } else {
+    rateLimitStores.clear();
+  }
+}
 
 module.exports = {
   createRateLimiter,
@@ -168,6 +187,8 @@ module.exports = {
   runCodeRateLimiter,
   submitCodeRateLimiter,
   contestActionRateLimiter,
+  adminActionRateLimiter,
   mediumProtectionRateLimiter,
   publicReadRateLimiter,
+  resetRateLimits,
 };

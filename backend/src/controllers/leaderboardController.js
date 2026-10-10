@@ -84,7 +84,7 @@ const leaderboardController = {
         scope,
         institution,
         date,
-        limit: parseInt(limit, 10) || 50,
+        limit: Math.max(1, Math.min(parseInt(limit, 10) || 50, 100)),
       });
       return res.status(200).json({ snapshots });
     } catch (error) {

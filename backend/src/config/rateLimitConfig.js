@@ -61,6 +61,15 @@ const RATE_LIMIT_CONFIG = {
     failClosed: false,
   },
 
+  // 7. High Protection: Sensitive Administrative Mutations (User management, status changes, archival)
+  ADMIN_ACTION: {
+    name: 'ADMIN_ACTION',
+    windowMs: parseInt(process.env.RATE_LIMIT_ADMIN_WINDOW_MS, 10) || 60 * 1000, // 1 minute
+    maxRequests: parseInt(process.env.RATE_LIMIT_ADMIN_MAX, 10) || 30,
+    message: 'Too many administrative action requests. Please slow down.',
+    failClosed: false,
+  },
+
   // Default Request and Payload Configuration
   LIMITS: {
     maxJsonBodyBytes: '512kb',

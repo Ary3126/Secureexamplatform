@@ -365,17 +365,28 @@ const runSampleTests = async (req, res, next) => {
       client = null;
     }
 
-    const evaluatedSubmission = await new Promise((resolve) => {
-      const enqueued = judgeQueue.addJob({
-        submissionId: submission.id,
-        userId,
-        isSampleRun: true,
-        resolveCallback: resolve,
-      });
-      if (!enqueued) {
-        resolve({ status: 'system_error', errorMessage: 'Execution queue limit reached. Please wait for your previous run to finish.' });
-      }
+    let resolveJob;
+    const executionPromise = new Promise((resolve) => {
+      resolveJob = resolve;
     });
+
+    const enqueued = judgeQueue.addJob({
+      submissionId: submission.id,
+      userId,
+      isSampleRun: true,
+      resolveCallback: resolveJob,
+    });
+
+    if (!enqueued) {
+      return res.status(429).json({
+        status: 'error',
+        statusCode: 429,
+        error: 'QUEUE_CONCURRENCY_LIMIT',
+        message: 'Execution queue limit reached. Please wait for your previous run to finish.',
+      });
+    }
+
+    const evaluatedSubmission = await executionPromise;
 
     return res.status(200).json({
       message: 'Sample test execution completed',

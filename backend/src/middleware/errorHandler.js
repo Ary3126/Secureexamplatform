@@ -76,6 +76,7 @@ const errorHandler = (err, req, res, next) => {
     else if (statusCode === 403) errorCategory = 'AUTHORIZATION_ERROR';
     else if (statusCode === 404) errorCategory = 'NOT_FOUND';
     else if (statusCode === 409) errorCategory = 'CONFLICT';
+    else if (statusCode === 413) errorCategory = 'PAYLOAD_TOO_LARGE';
     else if (statusCode === 429) errorCategory = 'RATE_LIMIT';
     else errorCategory = 'INTERNAL_ERROR';
   }
