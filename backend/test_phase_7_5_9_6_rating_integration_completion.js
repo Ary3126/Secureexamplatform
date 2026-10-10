@@ -184,7 +184,7 @@ async function runTests() {
         title: `E2E Final Rated Contest ${Date.now()}`,
         description: 'Complete lifecycle integration contest',
         startTime: new Date(Date.now() - 7200000).toISOString(),
-        endTime: new Date(Date.now() - 1800000).toISOString(),
+        endTime: new Date(Date.now() + 3600000).toISOString(),
         isRated: true,
       },
       tokenProfOwner
@@ -228,6 +228,9 @@ async function runTests() {
     await addSubmission(contestId, studentCharlie.id, testProb2, false, 70);
 
     // Dave makes 0 submissions (score: 0, 0 solved)
+
+    // Advance contest to ended state so ratings can be finalized
+    await db.query('UPDATE contests SET end_time = $1 WHERE id = $2;', [new Date(Date.now() - 1000).toISOString(), contestId]);
 
     // 1.6 Verify Standings Calculation Prior to Finalization
     const preFinalStandings = await StandingsService.computeContestStandings({ contestId });

@@ -200,7 +200,7 @@ class JudgeQueue extends EventEmitter {
       });
 
       // Attach sample result diagnostics if present
-      if (isSampleRun && verdictResult.sampleResults) {
+      if (isSampleRun && verdictResult.sampleResults && updatedSubmission) {
         updatedSubmission.sampleResults = verdictResult.sampleResults;
       }
 
