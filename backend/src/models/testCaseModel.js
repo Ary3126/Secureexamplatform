@@ -130,6 +130,10 @@ class TestCaseModel {
    * @returns {Promise<Object|null>}
    */
   static async findTestCaseById(id, client = null) {
+    const numId = Number(id);
+    if (!Number.isInteger(numId) || numId <= 0 || numId > 2147483647) {
+      return null;
+    }
     const text = `
       SELECT 
         tc.id, 
@@ -149,7 +153,7 @@ class TestCaseModel {
       JOIN problems p ON tc.problem_id = p.id
       WHERE tc.id = $1;
     `;
-    const res = await (client || db).query(text, [id]);
+    const res = await (client || db).query(text, [numId]);
     return res.rows[0] || null;
   }
 
@@ -161,6 +165,10 @@ class TestCaseModel {
    * @returns {Promise<Array<Object>>}
    */
   static async findTestCasesByProblemId(problemId, { includeHidden = false } = {}, client = null) {
+    const numId = Number(problemId);
+    if (!Number.isInteger(numId) || numId <= 0 || numId > 2147483647) {
+      return [];
+    }
     let text = `
       SELECT 
         id, 

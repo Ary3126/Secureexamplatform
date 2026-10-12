@@ -18,7 +18,9 @@ import assert from 'node:assert';
 function formatRelativeTime(isoString, now = Date.now()) {
   if (!isoString) return 'Just now';
   try {
-    const diff = Math.floor((now - new Date(isoString).getTime()) / 1000);
+    const timestamp = new Date(isoString).getTime();
+    if (isNaN(timestamp)) return 'Recently';
+    const diff = Math.floor((now - timestamp) / 1000);
     if (diff < 60) return 'Just now';
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -29,7 +31,7 @@ function formatRelativeTime(isoString, now = Date.now()) {
 }
 
 function formatUptime(seconds) {
-  if (!seconds || seconds <= 0) return '0m';
+  if (!seconds || typeof seconds !== 'number' || isNaN(seconds) || seconds <= 0) return '0m';
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   if (hrs > 0) return `${hrs}h ${mins}m`;
@@ -37,7 +39,7 @@ function formatUptime(seconds) {
 }
 
 function getActionBadge(action) {
-  if (!action) return { label: 'ACTION', className: 'action-auth' };
+  if (!action || typeof action !== 'string') return { label: 'ACTION', className: 'action-auth' };
   if (action.includes('CREATED') || action.includes('ADDED')) {
     return { label: action.replace(/_/g, ' '), className: 'action-created' };
   }
@@ -123,6 +125,8 @@ describe('Admin Panel Phase 7.2: Dashboard Frontend Logic Suite', () => {
     assert.strictEqual(getActionBadge('PRIVILEGED_ACTION_DENIED').className, 'action-security');
     assert.strictEqual(getActionBadge('LOGIN_SUCCESS').className, 'action-auth');
     assert.strictEqual(getActionBadge(null).className, 'action-auth');
+    assert.strictEqual(getActionBadge(123).className, 'action-auth');
+    assert.strictEqual(getActionBadge(undefined).className, 'action-auth');
   });
 
   it('5. Uptime formatter correctly converts seconds to hours and minutes', () => {
@@ -132,6 +136,9 @@ describe('Admin Panel Phase 7.2: Dashboard Frontend Logic Suite', () => {
     assert.strictEqual(formatUptime(120), '2m');
     assert.strictEqual(formatUptime(3660), '1h 1m');
     assert.strictEqual(formatUptime(86400), '24h 0m');
+    assert.strictEqual(formatUptime('invalid'), '0m');
+    assert.strictEqual(formatUptime(NaN), '0m');
+    assert.strictEqual(formatUptime(null), '0m');
   });
 
   it('6. Relative timestamp formatter outputs readable intervals', () => {
@@ -146,6 +153,7 @@ describe('Admin Panel Phase 7.2: Dashboard Frontend Logic Suite', () => {
     assert.strictEqual(formatRelativeTime(twoHoursAgo, fixedNow), '2h ago');
     assert.strictEqual(formatRelativeTime(threeDaysAgo, fixedNow), '3d ago');
     assert.strictEqual(formatRelativeTime(null, fixedNow), 'Just now');
+    assert.strictEqual(formatRelativeTime('invalid-date', fixedNow), 'Recently');
   });
 
   it('7. Quick actions resolve to existing canonical admin navigation sections', () => {

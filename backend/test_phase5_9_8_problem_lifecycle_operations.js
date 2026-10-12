@@ -20,6 +20,7 @@
  * 13. Persistent PostgreSQL Audit Trail.
  */
 
+process.env.NODE_ENV = 'test';
 const http = require('http');
 const express = require('express');
 const db = require('./src/config/db');
@@ -193,9 +194,14 @@ async function runTests() {
         java: 'class Solution {\n    public boolean isValidBST(TreeNode root) {}\n}\n',
       },
       harnessTemplates: {
-        python: 'def solve(): pass\n',
-        cpp: 'void solve() {}\n',
-        java: 'class Solution { void solve() {} }\n',
+        python: '# __STUDENT_CODE__\ndef solve(): pass\n',
+        cpp: '// __STUDENT_CODE__\nvoid solve() {}\n',
+        java: '// __STUDENT_CODE__\nclass Solution { void solve() {} }\n',
+      },
+      functionConfig: {
+        functionName: 'isValidBST',
+        returnType: 'boolean',
+        parameters: [{ name: 'root', type: 'TreeNode' }],
       },
       accessScope: 'contest_private',
     }, profAlphaToken);

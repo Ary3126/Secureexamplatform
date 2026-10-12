@@ -187,9 +187,14 @@ async function runTests() {
         java: 'class Solution {\n    public int maxPathSum(TreeNode root) {\n        return 0;\n    }\n}\n',
       },
       harnessTemplates: {
-        python: 'def solve(): pass\n',
-        cpp: 'void solve() {}\n',
-        java: 'class Solution { void solve() {} }\n',
+        python: '# __STUDENT_CODE__\ndef solve(): pass\n',
+        cpp: '// __STUDENT_CODE__\nvoid solve() {}\n',
+        java: '// __STUDENT_CODE__\nclass Solution { void solve() {} }\n',
+      },
+      functionConfig: {
+        functionName: 'maxPathSum',
+        returnType: 'integer',
+        parameters: [{ name: 'root', type: 'TreeNode' }],
       },
       accessScope: 'contest_private',
     }, prof1Token);

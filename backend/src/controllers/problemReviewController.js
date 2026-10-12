@@ -30,17 +30,30 @@ function canViewReview(user, problem, review) {
 }
 
 /**
+ * Safe ID Parser with positive integer and 32-bit overflow guards
+ */
+function parseIdParam(val, entityName = 'problem') {
+  const num = Number(val);
+  if (!Number.isInteger(num) || num <= 0 || !/^\d+$/.test(String(val).trim())) {
+    return { error: 'invalid', message: `Invalid ${entityName} ID format` };
+  }
+  if (num > 2147483647) {
+    return { error: 'overflow', message: `${entityName.charAt(0).toUpperCase() + entityName.slice(1)} #${val} not found` };
+  }
+  return { id: num };
+}
+
+/**
  * Submit problem for review
  * @route POST /api/problems/:id/review-request
  */
 const requestReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const { id } = req.params;
-    const problemId = Number(id);
-    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
+    const parsed = parseIdParam(req.params.id, 'problem');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const problemId = parsed.id;
 
     await client.query('BEGIN');
 
@@ -134,11 +147,10 @@ const requestReview = async (req, res, next) => {
 const startReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const { id } = req.params;
-    const problemId = Number(id);
-    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
+    const parsed = parseIdParam(req.params.id, 'problem');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const problemId = parsed.id;
 
     await client.query('BEGIN');
 
@@ -209,11 +221,10 @@ const startReview = async (req, res, next) => {
 const requestChanges = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const { id } = req.params;
-    const problemId = Number(id);
-    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
+    const parsed = parseIdParam(req.params.id, 'problem');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const problemId = parsed.id;
     const comment = req.body.comment || req.body.note || req.body.decisionReason;
 
     if (!comment || typeof comment !== 'string' || !comment.trim()) {
@@ -286,11 +297,10 @@ const requestChanges = async (req, res, next) => {
 const rejectReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const { id } = req.params;
-    const problemId = Number(id);
-    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
+    const parsed = parseIdParam(req.params.id, 'problem');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const problemId = parsed.id;
     const reason = req.body.reason || req.body.comment || req.body.note;
 
     if (!reason || typeof reason !== 'string' || !reason.trim()) {
@@ -363,11 +373,10 @@ const rejectReview = async (req, res, next) => {
 const approveReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const { id } = req.params;
-    const problemId = Number(id);
-    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
+    const parsed = parseIdParam(req.params.id, 'problem');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const problemId = parsed.id;
     const { note } = req.body || {};
 
     await client.query('BEGIN');
@@ -471,11 +480,10 @@ const approveReview = async (req, res, next) => {
 const resubmitReview = async (req, res, next) => {
   const client = await db.getClient();
   try {
-    const { id } = req.params;
-    const problemId = Number(id);
-    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
+    const parsed = parseIdParam(req.params.id, 'problem');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const problemId = parsed.id;
     const { comment } = req.body || {};
 
     await client.query('BEGIN');
@@ -555,11 +563,10 @@ const resubmitReview = async (req, res, next) => {
  */
 const getProblemReviews = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const problemId = Number(id);
-    if (!Number.isInteger(problemId) || problemId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
+    const parsed = parseIdParam(req.params.id, 'problem');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const problemId = parsed.id;
 
     const problem = await ProblemModel.findProblemById(problemId);
     if (!problem) {
@@ -589,10 +596,10 @@ const getProblemReviews = async (req, res, next) => {
 const getReviewDetail = async (req, res, next) => {
   try {
     const rawReviewId = req.params.reviewId || req.params.id;
-    const reviewId = Number(rawReviewId);
-    if (!Number.isInteger(reviewId) || reviewId <= 0 || !/^\d+$/.test(String(rawReviewId).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid review ID format' });
-    }
+    const parsed = parseIdParam(rawReviewId, 'review');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const reviewId = parsed.id;
 
     const review = await ProblemReviewModel.findReviewById(reviewId);
     if (!review) {
@@ -623,10 +630,10 @@ const getReviewDetail = async (req, res, next) => {
 const addReviewComment = async (req, res, next) => {
   try {
     const { id, reviewId } = req.params;
-    const rId = Number(reviewId);
-    if (!Number.isInteger(rId) || rId <= 0 || !/^\d+$/.test(String(reviewId).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid review ID format' });
-    }
+    const parsed = parseIdParam(reviewId, 'review');
+    if (parsed.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsed.message });
+    if (parsed.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsed.message });
+    const rId = parsed.id;
     const { comment, commentType = 'general' } = req.body;
 
     if (!comment || typeof comment !== 'string' || !comment.trim()) {
@@ -702,14 +709,15 @@ const getReviewQueue = async (req, res, next) => {
 const getReviewVersionDiff = async (req, res, next) => {
   try {
     const { id, reviewId } = req.params;
-    const pId = Number(id);
-    const rId = Number(reviewId);
-    if (!Number.isInteger(pId) || pId <= 0 || !/^\d+$/.test(String(id).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid problem ID format' });
-    }
-    if (!Number.isInteger(rId) || rId <= 0 || !/^\d+$/.test(String(reviewId).trim())) {
-      return res.status(400).json({ status: 'error', statusCode: 400, message: 'Invalid review ID format' });
-    }
+    const parsedProb = parseIdParam(id, 'problem');
+    if (parsedProb.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsedProb.message });
+    if (parsedProb.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsedProb.message });
+    const pId = parsedProb.id;
+
+    const parsedRev = parseIdParam(reviewId, 'review');
+    if (parsedRev.error === 'invalid') return res.status(400).json({ status: 'error', statusCode: 400, message: parsedRev.message });
+    if (parsedRev.error === 'overflow') return res.status(404).json({ status: 'error', statusCode: 404, message: parsedRev.message });
+    const rId = parsedRev.id;
 
     const problem = await ProblemModel.findProblemById(pId);
     if (!problem) {

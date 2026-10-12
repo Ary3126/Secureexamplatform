@@ -168,7 +168,12 @@ async function runTests() {
       difficulty: 'medium',
       codingMode: 'function',
       starterTemplates: { python: 'def topo_sort(n, edges):\n    pass\n' },
-      harnessTemplates: { python: 'def run_harness():\n    pass\n' },
+      harnessTemplates: { python: '# __STUDENT_CODE__\ndef run_harness():\n    pass\n' },
+      functionConfig: {
+        functionName: 'topo_sort',
+        returnType: 'list',
+        parameters: [{ name: 'n', type: 'integer' }, { name: 'edges', type: 'list' }],
+      },
       accessScope: 'contest_private',
     }, prof1Token);
 

@@ -42,9 +42,11 @@ const createProblem = async (req, res, next) => {
       allowedLanguages,
       accessScope: effectiveScope,
       createdBy,
-      isPublished: req.body.isPublished !== undefined
-        ? Boolean(req.body.isPublished)
-        : (req.body.is_published !== undefined ? Boolean(req.body.is_published) : undefined),
+      isPublished: isAdmin
+        ? (req.body.isPublished !== undefined
+            ? Boolean(req.body.isPublished)
+            : (req.body.is_published !== undefined ? Boolean(req.body.is_published) : undefined))
+        : false,
       testCases,
     }, req.user, req);
 

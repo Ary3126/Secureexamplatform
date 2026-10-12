@@ -181,9 +181,14 @@ async function runTests() {
         java: 'class Node {}\n',
       },
       harnessTemplates: {
-        python: 'def run_harness():\n    pass\n',
-        cpp: 'void run_harness() {}\n',
-        java: 'class Harness { static void run() {} }\n',
+        python: '# __STUDENT_CODE__\ndef run_harness():\n    pass\n',
+        cpp: '// __STUDENT_CODE__\nvoid run_harness() {}\n',
+        java: '// __STUDENT_CODE__\nclass Harness { static void run() {} }\n',
+      },
+      functionConfig: {
+        functionName: 'searchBST',
+        returnType: 'boolean',
+        parameters: [{ name: 'root', type: 'Node' }, { name: 'val', type: 'integer' }],
       },
       accessScope: 'contest_private',
     }, prof1Token);

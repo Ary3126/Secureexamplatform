@@ -104,7 +104,16 @@ const getUserById = async (req, res, next) => {
       });
     }
 
-    const user = await UserModel.findUserById(parseInt(idStr, 10));
+    const targetId = parseInt(idStr, 10);
+    if (targetId > 2147483647) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `User with ID ${id} not found`,
+      });
+    }
+
+    const user = await UserModel.findUserById(targetId);
     if (!user) {
       return res.status(404).json({
         status: 'error',
@@ -289,6 +298,13 @@ const updateUser = async (req, res, next) => {
       });
     }
     const targetId = parseInt(idStr, 10);
+    if (targetId > 2147483647) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `User with ID ${id} not found`,
+      });
+    }
 
     const { username, email, fullName, bio, avatarUrl, institution } = req.body;
 
@@ -427,6 +443,13 @@ const updateUserRole = async (req, res, next) => {
       });
     }
     const targetId = parseInt(idStr, 10);
+    if (targetId > 2147483647) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `User with ID ${id} not found`,
+      });
+    }
 
     const { role } = req.body;
     if (!role || typeof role !== 'string') {
@@ -538,6 +561,13 @@ const updateUserStatus = async (req, res, next) => {
       });
     }
     const targetId = parseInt(idStr, 10);
+    if (targetId > 2147483647) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `User with ID ${id} not found`,
+      });
+    }
 
     const { isActive } = req.body;
     if (isActive === undefined || (typeof isActive !== 'boolean' && isActive !== 'true' && isActive !== 'false')) {
@@ -650,119 +680,135 @@ const getOverviewStats = async (req, res, next) => {
   try {
     const t0 = process.hrtime.bigint();
 
-    // 1. User metrics
-    const userStatsRes = await db.query(`
-      SELECT 
-        COUNT(*)::int AS total_users,
-        COUNT(CASE WHEN role = 'student' THEN 1 END)::int AS total_students,
-        COUNT(CASE WHEN role = 'professor' THEN 1 END)::int AS total_professors,
-        COUNT(CASE WHEN role = 'super_admin' THEN 1 END)::int AS total_admins,
-        COUNT(CASE WHEN is_active = true THEN 1 END)::int AS active_users,
-        COUNT(CASE WHEN is_active = false THEN 1 END)::int AS total_suspended
-      FROM users;
-    `);
+    // Execute all platform aggregation queries concurrently for optimal performance
+    const [
+      userStatsRes,
+      contestStatsRes,
+      recentContestsRes,
+      probStatsRes,
+      reviewStatsRes,
+      subStatsRes,
+      recentAuditRes,
+    ] = await Promise.all([
+      // 1. User metrics
+      db.query(`
+        SELECT 
+          COUNT(*)::int AS total_users,
+          COUNT(CASE WHEN role = 'student' THEN 1 END)::int AS total_students,
+          COUNT(CASE WHEN role = 'professor' THEN 1 END)::int AS total_professors,
+          COUNT(CASE WHEN role = 'contest_admin' THEN 1 END)::int AS total_contest_admins,
+          COUNT(CASE WHEN role = 'super_admin' THEN 1 END)::int AS total_admins,
+          COUNT(CASE WHEN is_active = true THEN 1 END)::int AS active_users,
+          COUNT(CASE WHEN is_active = false THEN 1 END)::int AS total_suspended
+        FROM users;
+      `),
 
-    // 2. Contest metrics
-    const contestStatsRes = await db.query(`
-      SELECT 
-        COUNT(*)::int AS total_contests,
-        COUNT(CASE WHEN status = 'published' AND start_time <= NOW() AND end_time > NOW() THEN 1 END)::int AS active_contests,
-        COUNT(CASE WHEN status = 'published' AND start_time > NOW() THEN 1 END)::int AS upcoming_contests,
-        COUNT(CASE WHEN status = 'draft' THEN 1 END)::int AS draft_contests,
-        COUNT(CASE WHEN status = 'archived' THEN 1 END)::int AS archived_contests
-      FROM contests;
-    `);
+      // 2. Contest metrics
+      db.query(`
+        SELECT 
+          COUNT(*)::int AS total_contests,
+          COUNT(CASE WHEN status = 'published' AND start_time <= NOW() AND end_time > NOW() AND (is_rating_finalized IS FALSE OR is_rating_finalized IS NULL) THEN 1 END)::int AS active_contests,
+          COUNT(CASE WHEN status = 'published' AND start_time > NOW() THEN 1 END)::int AS upcoming_contests,
+          COUNT(CASE WHEN status = 'draft' THEN 1 END)::int AS draft_contests,
+          COUNT(CASE WHEN status = 'archived' THEN 1 END)::int AS archived_contests,
+          COUNT(CASE WHEN status = 'published' AND (end_time <= NOW() OR is_rating_finalized = true) THEN 1 END)::int AS ended_contests
+        FROM contests;
+      `),
 
-    // 3. Active and upcoming contests list (max 6)
-    const recentContestsRes = await db.query(`
-      SELECT 
-        c.id, 
-        c.title, 
-        c.start_time AS "startTime", 
-        c.end_time AS "endTime", 
-        c.status,
-        COUNT(DISTINCT part.user_id)::int AS "participantCount"
-      FROM contests c
-      LEFT JOIN contest_participants part ON c.id = part.contest_id
-      WHERE c.status != 'archived'
-      GROUP BY c.id
-      ORDER BY 
-        CASE 
-          WHEN c.status = 'published' AND c.start_time <= NOW() AND c.end_time > NOW() THEN 1
-          WHEN c.status = 'published' AND c.start_time > NOW() THEN 2
-          ELSE 3
-        END,
-        c.start_time ASC
-      LIMIT 6;
-    `);
+      // 3. Active and upcoming contests list (max 6)
+      db.query(`
+        SELECT 
+          c.id, 
+          c.title, 
+          c.start_time AS "startTime", 
+          c.end_time AS "endTime", 
+          c.status,
+          c.is_rating_finalized AS "isRatingFinalized",
+          COUNT(DISTINCT part.user_id)::int AS "participantCount"
+        FROM contests c
+        LEFT JOIN contest_participants part ON c.id = part.contest_id
+        WHERE c.status != 'archived'
+        GROUP BY c.id
+        ORDER BY 
+          CASE 
+            WHEN c.status = 'published' AND c.start_time <= NOW() AND c.end_time > NOW() AND (c.is_rating_finalized IS FALSE OR c.is_rating_finalized IS NULL) THEN 1
+            WHEN c.status = 'published' AND c.start_time > NOW() THEN 2
+            ELSE 3
+          END,
+          c.start_time ASC
+        LIMIT 6;
+      `),
 
-    const formattedContests = recentContestsRes.rows.map((c) => ({
+      // 4. Problem metrics
+      db.query(`
+        SELECT 
+          COUNT(*)::int AS total_problems,
+          COUNT(CASE WHEN is_published = true THEN 1 END)::int AS published_problems,
+          COUNT(CASE WHEN review_status = 'draft' OR review_status IS NULL THEN 1 END)::int AS draft_problems,
+          COUNT(CASE WHEN review_status = 'review_requested' OR review_status = 'in_review' THEN 1 END)::int AS pending_review_problems,
+          COUNT(CASE WHEN review_status = 'approved' THEN 1 END)::int AS approved_problems,
+          COUNT(CASE WHEN review_status = 'archived' THEN 1 END)::int AS archived_problems
+        FROM problems;
+      `),
+
+      // 5. Review queue metrics
+      db.query(`
+        SELECT 
+          COUNT(*)::int AS total_queue,
+          COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending_reviews,
+          COUNT(CASE WHEN status = 'in_review' THEN 1 END)::int AS in_review_reviews,
+          COUNT(CASE WHEN status = 'approved' THEN 1 END)::int AS approved_reviews
+        FROM problem_reviews;
+      `),
+
+      // 6. Submission metrics (evaluated non-sample submissions)
+      db.query(`
+        SELECT 
+          COUNT(*)::int AS total_submissions,
+          COUNT(CASE WHEN status = 'accepted' THEN 1 END)::int AS accepted_submissions,
+          COUNT(CASE WHEN status = 'wrong_answer' THEN 1 END)::int AS wrong_answer_submissions,
+          COUNT(CASE WHEN status = 'runtime_error' THEN 1 END)::int AS runtime_error_submissions,
+          COUNT(CASE WHEN status = 'compilation_error' THEN 1 END)::int AS compilation_error_submissions,
+          COUNT(CASE WHEN status IN ('time_limit_exceeded', 'memory_limit_exceeded') THEN 1 END)::int AS resource_limit_submissions
+        FROM submissions
+        WHERE is_sample_run = false;
+      `),
+
+      // 7. Recent audit activity (sanitized: only non-sensitive columns)
+      db.query(`
+        SELECT a.id, a.action, a.resource_type, a.resource_id, a.outcome, a.created_at,
+               u.username AS actor_name, u.role AS actor_role
+        FROM audit_logs a
+        LEFT JOIN users u ON a.actor_id = u.id
+        ORDER BY a.created_at DESC
+        LIMIT 10;
+      `),
+    ]);
+
+    const formattedContests = (recentContestsRes.rows || []).map((c) => ({
       id: c.id,
       title: c.title,
       startTime: c.startTime,
       endTime: c.endTime,
       status: c.status,
+      isRatingFinalized: Boolean(c.isRatingFinalized),
       runtimeState: getContestRuntimeState(c),
       participantCount: Number(c.participantCount) || 0,
     }));
 
-    // 4. Problem metrics
-    const probStatsRes = await db.query(`
-      SELECT 
-        COUNT(*)::int AS total_problems,
-        COUNT(CASE WHEN is_published = true THEN 1 END)::int AS published_problems,
-        COUNT(CASE WHEN review_status = 'draft' THEN 1 END)::int AS draft_problems,
-        COUNT(CASE WHEN review_status = 'review_requested' OR review_status = 'in_review' THEN 1 END)::int AS pending_review_problems,
-        COUNT(CASE WHEN review_status = 'approved' THEN 1 END)::int AS approved_problems,
-        COUNT(CASE WHEN review_status = 'archived' THEN 1 END)::int AS archived_problems
-      FROM problems;
-    `);
-
-    // 5. Review queue metrics
-    const reviewStatsRes = await db.query(`
-      SELECT 
-        COUNT(*)::int AS total_queue,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending_reviews,
-        COUNT(CASE WHEN status = 'in_review' THEN 1 END)::int AS in_review_reviews,
-        COUNT(CASE WHEN status = 'approved' THEN 1 END)::int AS approved_reviews
-      FROM problem_reviews;
-    `);
-
-    // 6. Submission metrics (evaluated non-sample submissions)
-    const subStatsRes = await db.query(`
-      SELECT 
-        COUNT(*)::int AS total_submissions,
-        COUNT(CASE WHEN status = 'accepted' THEN 1 END)::int AS accepted_submissions,
-        COUNT(CASE WHEN status = 'wrong_answer' THEN 1 END)::int AS wrong_answer_submissions,
-        COUNT(CASE WHEN status = 'runtime_error' THEN 1 END)::int AS runtime_error_submissions,
-        COUNT(CASE WHEN status = 'compilation_error' THEN 1 END)::int AS compilation_error_submissions,
-        COUNT(CASE WHEN status IN ('time_limit_exceeded', 'memory_limit_exceeded') THEN 1 END)::int AS resource_limit_submissions
-      FROM submissions
-      WHERE is_sample_run = false;
-    `);
-
     const subRow = subStatsRes.rows[0] || {};
-    const acceptedSubs = subRow.accepted_submissions || 0;
-    const evaluatedSubs = (subRow.accepted_submissions || 0) +
-      (subRow.wrong_answer_submissions || 0) +
-      (subRow.runtime_error_submissions || 0) +
-      (subRow.compilation_error_submissions || 0) +
-      (subRow.resource_limit_submissions || 0);
+    const acceptedSubs = Number(subRow.accepted_submissions) || 0;
+    const evaluatedSubs = (Number(subRow.accepted_submissions) || 0) +
+      (Number(subRow.wrong_answer_submissions) || 0) +
+      (Number(subRow.runtime_error_submissions) || 0) +
+      (Number(subRow.compilation_error_submissions) || 0) +
+      (Number(subRow.resource_limit_submissions) || 0);
     const acceptanceRate = evaluatedSubs > 0 ? Math.round((acceptedSubs / evaluatedSubs) * 100) : 0;
     const formattedSubmissions = {
       ...subRow,
+      total_evaluated: evaluatedSubs,
       acceptance_rate: acceptanceRate,
     };
-
-    // 7. Recent audit activity (sanitized: only non-sensitive columns)
-    const recentAuditRes = await db.query(`
-      SELECT a.id, a.action, a.resource_type, a.resource_id, a.outcome, a.created_at,
-             u.username AS actor_name, u.role AS actor_role
-      FROM audit_logs a
-      LEFT JOIN users u ON a.actor_id = u.id
-      ORDER BY a.created_at DESC
-      LIMIT 10;
-    `);
 
     const dbDurationMs = Math.round(Number(process.hrtime.bigint() - t0) / 1e4) / 100;
 
@@ -781,13 +827,13 @@ const getOverviewStats = async (req, res, next) => {
     return res.status(200).json({
       status: 'success',
       data: {
-        users: userStatsRes.rows[0],
-        contests: contestStatsRes.rows[0],
+        users: userStatsRes.rows[0] || {},
+        contests: contestStatsRes.rows[0] || {},
         recentContests: formattedContests,
-        problems: probStatsRes.rows[0],
+        problems: probStatsRes.rows[0] || {},
         submissions: formattedSubmissions,
-        reviews: reviewStatsRes.rows[0],
-        recentActivity: recentAuditRes.rows,
+        reviews: reviewStatsRes.rows[0] || {},
+        recentActivity: recentAuditRes.rows || [],
         system: {
           databaseStatus: 'connected',
           apiStatus: 'HEALTHY',
@@ -894,6 +940,13 @@ const getProblemById = async (req, res, next) => {
     }
 
     const problemId = parseInt(idStr, 10);
+    if (problemId > 2147483647) {
+      return res.status(404).json({
+        status: 'error',
+        statusCode: 404,
+        message: `Problem with ID ${id} not found`,
+      });
+    }
     const problem = await ProblemModel.findProblemById(problemId, req.user.id);
     if (!problem) {
       return res.status(404).json({

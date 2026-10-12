@@ -44,6 +44,7 @@ export default function AdminUserManagement({
   roleFilter = 'all',
   statusFilter = 'all',
   loading = false,
+  error = null,
   currentUser,
   onSearchChange,
   onRoleFilterChange,
@@ -53,6 +54,7 @@ export default function AdminUserManagement({
   onUpdateUserRole,
   onToggleUserStatus,
   onFetchUserDetails,
+  onRetry,
   isProcessing = false,
 }) {
   // Modal states
@@ -177,6 +179,10 @@ export default function AdminUserManagement({
     e.preventDefault();
     setModalError('');
     try {
+      if (!newUserData.password || newUserData.password.length < 8) {
+        setModalError('Validation failed: password must be at least 8 characters long.');
+        return;
+      }
       const payload = {
         ...newUserData,
         fullName: newUserData.fullName.trim() || newUserData.username.trim(),
@@ -316,7 +322,27 @@ export default function AdminUserManagement({
 
       {/* 3. Users Table Card */}
       <div className="admin-users-card">
-        {loading ? (
+        {error ? (
+          <div style={{ textAlign: 'center', padding: '48px 20px', color: '#fca5a5' }} data-testid="admin-users-error-state">
+            <AlertTriangle size={36} style={{ margin: '0 auto 12px auto', color: '#f87171', display: 'block' }} />
+            <h4 style={{ margin: '0 0 6px 0', color: '#fca5a5', fontSize: '1rem', fontWeight: 600 }}>
+              Failed to Load Users
+            </h4>
+            <p style={{ margin: '0 0 16px 0', fontSize: '0.85rem', color: '#94a3b8', maxWidth: '440px', marginLeft: 'auto', marginRight: 'auto' }}>
+              {error}
+            </p>
+            {onRetry && (
+              <button
+                className="btn-primary"
+                onClick={onRetry}
+                style={{ fontSize: '0.82rem' }}
+                data-testid="retry-fetch-users-btn"
+              >
+                <RotateCcw size={14} /> Retry Loading
+              </button>
+            )}
+          </div>
+        ) : loading ? (
           <AuthoringLoadingState message="Loading platform users directory..." />
         ) : users.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b' }}>
@@ -459,37 +485,40 @@ export default function AdminUserManagement({
         )}
 
         {/* 4. Scalable Pagination Bar */}
-        {totalUsers > 0 && (
-          <div className="admin-pagination-bar" data-testid="admin-pagination-bar">
-            <span className="pagination-info">
-              Showing {users.length > 0 ? (page - 1) * limit + 1 : 0}–{Math.min(page * limit, totalUsers)} of {totalUsers} total users
-            </span>
-
-            <div className="pagination-controls">
-              <button
-                className="pagination-btn"
-                disabled={page <= 1}
-                onClick={() => onPageChange(page - 1)}
-                data-testid="pagination-prev-btn"
-              >
-                <ChevronLeft size={14} /> Previous
-              </button>
-
-              <span className="pagination-current">
-                Page {page} of {totalPages}
+        {totalUsers > 0 && (() => {
+          const clampedPage = Math.min(Math.max(page, 1), totalPages);
+          return (
+            <div className="admin-pagination-bar" data-testid="admin-pagination-bar">
+              <span className="pagination-info">
+                Showing {users.length > 0 ? (clampedPage - 1) * limit + 1 : 0}–{Math.min(clampedPage * limit, totalUsers)} of {totalUsers} total users
               </span>
 
-              <button
-                className="pagination-btn"
-                disabled={page >= totalPages}
-                onClick={() => onPageChange(page + 1)}
-                data-testid="pagination-next-btn"
-              >
-                Next <ChevronRight size={14} />
-              </button>
+              <div className="pagination-controls">
+                <button
+                  className="pagination-btn"
+                  disabled={clampedPage <= 1}
+                  onClick={() => onPageChange(clampedPage - 1)}
+                  data-testid="pagination-prev-btn"
+                >
+                  <ChevronLeft size={14} /> Previous
+                </button>
+
+                <span className="pagination-current">
+                  Page {clampedPage} of {totalPages}
+                </span>
+
+                <button
+                  className="pagination-btn"
+                  disabled={clampedPage >= totalPages}
+                  onClick={() => onPageChange(clampedPage + 1)}
+                  data-testid="pagination-next-btn"
+                >
+                  Next <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* 5. User Details Modal */}
@@ -889,6 +918,7 @@ export default function AdminUserManagement({
                   <input
                     type="password"
                     required
+                    minLength={8}
                     placeholder="Minimum 8 characters"
                     value={newUserData.password}
                     onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}

@@ -26,10 +26,12 @@ function UsersSection({ token, currentUser }) {
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ page, limit: 20 });
       if (search.trim()) params.set('search', search.trim());
@@ -45,9 +47,14 @@ function UsersSection({ token, currentUser }) {
         const total = payload.pagination?.total ?? payload.total ?? payload.totalUsers ?? userList.length;
         setUsers(userList);
         setTotalUsers(total);
+        setError(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || `Failed to fetch users (HTTP ${res.status})`);
       }
     } catch (err) {
       console.error('Failed to fetch users:', err);
+      setError(err.message || 'Network error fetching users');
     } finally {
       setLoading(false);
     }
@@ -154,6 +161,8 @@ function UsersSection({ token, currentUser }) {
       roleFilter={roleFilter}
       statusFilter={statusFilter}
       loading={loading}
+      error={error}
+      onRetry={fetchUsers}
       currentUser={currentUser}
       isProcessing={isProcessing}
       onSearchChange={(v) => { setSearch(v); setPage(1); }}

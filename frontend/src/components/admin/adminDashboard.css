@@ -127,6 +127,60 @@
   background: #dc2626;
 }
 
+/* 2.1 Dedicated Error State Card */
+.admin-error-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 24px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 14px;
+  text-align: center;
+  backdrop-filter: blur(12px);
+  margin-top: 8px;
+}
+
+.admin-error-card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 480px;
+}
+
+.admin-error-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 50%;
+}
+
+.admin-error-card-content h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f87171;
+  margin: 0;
+}
+
+.admin-error-card-content p {
+  font-size: 0.9375rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.admin-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
 /* 2.5 Quick Actions Bar */
 .admin-quick-actions-bar {
   display: flex;

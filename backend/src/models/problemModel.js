@@ -200,6 +200,13 @@ class ProblemModel {
    * Find a problem by ID with user status and bookmark flag
    */
   static async findProblemById(id, userId = null) {
+    const numId = Number(id);
+    if (!Number.isInteger(numId) || numId <= 0 || numId > 2147483647) {
+      return null;
+    }
+    const safeUserId = (userId && Number.isInteger(Number(userId)) && Number(userId) > 0 && Number(userId) <= 2147483647)
+      ? Number(userId)
+      : null;
     const text = `
       SELECT 
         p.id, 
@@ -254,7 +261,7 @@ class ProblemModel {
       WHERE p.id = $1
       GROUP BY p.id, u.username, u.full_name, sp.user_id;
     `;
-    const res = await db.query(text, [id, userId]);
+    const res = await db.query(text, [numId, safeUserId]);
     return res.rows[0] || null;
   }
 
@@ -300,8 +307,9 @@ class ProblemModel {
     // 1. Search Query (matches title, description, or exact numeric ID)
     if (search && search.trim()) {
       const term = search.trim();
-      if (!isNaN(term) && parseInt(term, 10) > 0) {
-        values.push(parseInt(term, 10));
+      const numTerm = parseInt(term, 10);
+      if (!isNaN(term) && /^\d+$/.test(term) && numTerm > 0 && numTerm <= 2147483647) {
+        values.push(numTerm);
         values.push(`%${term}%`);
         conditions.push(`(p.id = $${values.length - 1} OR p.title ILIKE $${values.length} OR p.description ILIKE $${values.length})`);
       } else {
@@ -470,8 +478,9 @@ class ProblemModel {
 
     if (search && search.trim()) {
       const term = search.trim();
-      if (!isNaN(term) && parseInt(term, 10) > 0) {
-        values.push(parseInt(term, 10));
+      const numTerm = parseInt(term, 10);
+      if (!isNaN(term) && /^\d+$/.test(term) && numTerm > 0 && numTerm <= 2147483647) {
+        values.push(numTerm);
         values.push(`%${term}%`);
         conditions.push(`(p.id = $${values.length - 1} OR p.title ILIKE $${values.length} OR p.description ILIKE $${values.length})`);
       } else {
@@ -1085,6 +1094,8 @@ class ProblemModel {
    * List all immutable revision records for a problem
    */
   static async findProblemVersions(problemId, client = null) {
+    const numPId = Number(problemId);
+    if (!Number.isInteger(numPId) || numPId <= 0 || numPId > 2147483647) return [];
     const text = `
       SELECT 
         pv.id,
@@ -1105,7 +1116,7 @@ class ProblemModel {
       WHERE pv.problem_id = $1
       ORDER BY pv.version_number DESC;
     `;
-    const res = await (client || db).query(text, [problemId]);
+    const res = await (client || db).query(text, [numPId]);
     return res.rows;
   }
 
@@ -1113,6 +1124,10 @@ class ProblemModel {
    * Get specific version snapshot details including immutable test cases snapshot
    */
   static async findProblemVersionByNumber(problemId, versionNumber, client = null) {
+    const numPId = Number(problemId);
+    const numV = Number(versionNumber);
+    if (!Number.isInteger(numPId) || numPId <= 0 || numPId > 2147483647) return null;
+    if (!Number.isInteger(numV) || numV <= 0 || numV > 2147483647) return null;
     const text = `
       SELECT 
         pv.id,
@@ -1138,7 +1153,7 @@ class ProblemModel {
       LEFT JOIN users u ON pv.created_by = u.id
       WHERE pv.problem_id = $1 AND pv.version_number = $2;
     `;
-    const res = await (client || db).query(text, [problemId, versionNumber]);
+    const res = await (client || db).query(text, [numPId, numV]);
     return res.rows[0] || null;
   }
 

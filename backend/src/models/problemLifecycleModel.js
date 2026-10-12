@@ -8,6 +8,12 @@ class ProblemLifecycleModel {
    * Compare two version snapshots of a problem
    */
   static async compareVersions(problemId, v1, v2, client = null) {
+    const numPId = Number(problemId);
+    const numV1 = Number(v1);
+    const numV2 = Number(v2);
+    if (!Number.isInteger(numPId) || numPId <= 0 || numPId > 2147483647) return null;
+    if (!Number.isInteger(numV1) || numV1 <= 0 || numV1 > 2147483647) return null;
+    if (!Number.isInteger(numV2) || numV2 <= 0 || numV2 > 2147483647) return null;
     const text = `
       SELECT 
         version_number AS "versionNumber",

@@ -30,6 +30,8 @@ class ProblemReviewModel {
    * Find active review (pending or in_review) for a specific problem
    */
   static async findActiveReviewForProblem(problemId, client = null) {
+    const numId = Number(problemId);
+    if (!Number.isInteger(numId) || numId <= 0 || numId > 2147483647) return null;
     const text = `
       SELECT 
         r.id, 
@@ -46,7 +48,7 @@ class ProblemReviewModel {
       ORDER BY r.id DESC
       LIMIT 1;
     `;
-    const res = await (client || db).query(text, [problemId]);
+    const res = await (client || db).query(text, [numId]);
     return res.rows[0] || null;
   }
 
@@ -54,6 +56,8 @@ class ProblemReviewModel {
    * Find a review by its ID with problem metadata and author/reviewer details
    */
   static async findReviewById(reviewId, client = null) {
+    const numId = Number(reviewId);
+    if (!Number.isInteger(numId) || numId <= 0 || numId > 2147483647) return null;
     const text = `
       SELECT 
         r.id, 
@@ -173,6 +177,8 @@ class ProblemReviewModel {
    * Find comments for a review
    */
   static async findReviewComments(reviewId, client = null) {
+    const numId = Number(reviewId);
+    if (!Number.isInteger(numId) || numId <= 0 || numId > 2147483647) return [];
     const text = `
       SELECT 
         c.id, 
@@ -190,7 +196,7 @@ class ProblemReviewModel {
       WHERE c.review_id = $1
       ORDER BY c.created_at ASC, c.id ASC;
     `;
-    const res = await (client || db).query(text, [reviewId]);
+    const res = await (client || db).query(text, [numId]);
     return res.rows;
   }
 
@@ -198,6 +204,8 @@ class ProblemReviewModel {
    * Find all reviews for a specific problem
    */
   static async findReviewsByProblemId(problemId, client = null) {
+    const numId = Number(problemId);
+    if (!Number.isInteger(numId) || numId <= 0 || numId > 2147483647) return [];
     const text = `
       SELECT 
         r.id, 

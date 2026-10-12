@@ -29,7 +29,9 @@ import {
 export function formatRelativeTime(isoString, now = Date.now()) {
   if (!isoString) return 'Just now';
   try {
-    const diff = Math.floor((now - new Date(isoString).getTime()) / 1000);
+    const timestamp = new Date(isoString).getTime();
+    if (isNaN(timestamp)) return 'Recently';
+    const diff = Math.floor((now - timestamp) / 1000);
     if (diff < 60) return 'Just now';
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -43,7 +45,7 @@ export function formatRelativeTime(isoString, now = Date.now()) {
  * Format seconds into human readable duration (e.g. '2h 15m')
  */
 export function formatUptime(seconds) {
-  if (!seconds || seconds <= 0) return '0m';
+  if (!seconds || typeof seconds !== 'number' || isNaN(seconds) || seconds <= 0) return '0m';
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   if (hrs > 0) return `${hrs}h ${mins}m`;
@@ -54,7 +56,7 @@ export function formatUptime(seconds) {
  * Clean badge class and label for audit action types
  */
 export function getActionBadge(action) {
-  if (!action) return { label: 'ACTION', className: 'action-auth' };
+  if (!action || typeof action !== 'string') return { label: 'ACTION', className: 'action-auth' };
   if (action.includes('CREATED') || action.includes('ADDED')) {
     return { label: action.replace(/_/g, ' '), className: 'action-created' };
   }
@@ -96,7 +98,8 @@ export default function AdminDashboard({
       if (!res.ok) {
         if (res.status === 401) throw new Error('Session expired. Please log in again.');
         if (res.status === 403) throw new Error('Access denied. Super Admin privileges required.');
-        throw new Error(`Server returned HTTP ${res.status}`);
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.message || `Server returned HTTP ${res.status}`);
       }
 
       const json = await res.json();
@@ -119,11 +122,11 @@ export default function AdminDashboard({
 
   const users = data?.users || {};
   const contests = data?.contests || {};
-  const recentContests = data?.recentContests || [];
+  const recentContests = Array.isArray(data?.recentContests) ? data.recentContests : [];
   const problems = data?.problems || {};
   const submissions = data?.submissions || {};
   const reviews = data?.reviews || {};
-  const recentActivity = data?.recentActivity || [];
+  const recentActivity = Array.isArray(data?.recentActivity) ? data.recentActivity : [];
   const system = data?.system || {};
 
   return (
@@ -153,8 +156,9 @@ export default function AdminDashboard({
         </div>
       </div>
 
-      {/* 2. Error State Banner */}
-      {error && (
+      {/* 2. Error State Handling */}
+      {/* 2a. Stale Data Error Banner (when error occurs on refresh but previous data exists) */}
+      {error && data && (
         <div className="admin-error-banner" data-testid="admin-error-banner">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertCircle size={18} />
@@ -165,6 +169,30 @@ export default function AdminDashboard({
           </button>
         </div>
       )}
+
+      {/* 2b. Initial Load Failure Card (prevents displaying misleading 0-value metrics) */}
+      {error && !data ? (
+        <div className="admin-error-card" data-testid="admin-error-card">
+          <div className="admin-error-card-content">
+            <div className="admin-error-icon-wrap">
+              <AlertCircle size={28} color="#ef4444" />
+            </div>
+            <h2>Failed to Load Platform Metrics</h2>
+            <p>{error}</p>
+            <div className="admin-error-actions">
+              <button
+                onClick={fetchOverviewStats}
+                disabled={isLoading}
+                className="admin-error-retry-btn"
+                data-testid="admin-error-retry-btn"
+              >
+                {isLoading ? 'Retrying...' : 'Retry'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
 
       {/* 3. Quick Actions Bar */}
       <div className="admin-quick-actions-bar" data-testid="admin-quick-actions">
@@ -350,8 +378,8 @@ export default function AdminDashboard({
                       <div className="admin-contest-info">
                         <span className="admin-contest-title">{c.title}</span>
                         <div className="admin-contest-meta">
-                          <span>{c.participantCount} participant{c.participantCount === 1 ? '' : 's'}</span>
-                          {c.startTime && (
+                          <span>{Number(c.participantCount) || 0} participant{Number(c.participantCount) === 1 ? '' : 's'}</span>
+                          {c.startTime && !isNaN(new Date(c.startTime).getTime()) && (
                             <span>{new Date(c.startTime).toLocaleDateString()}</span>
                           )}
                         </div>
@@ -509,7 +537,7 @@ export default function AdminDashboard({
                   </div>
                   <div className="admin-sub-metric-box status-total">
                     <span className="sub-metric-label">Total Evaluated</span>
-                    <span className="sub-metric-value">{submissions.total_submissions ?? 0}</span>
+                    <span className="sub-metric-value">{submissions.total_evaluated ?? submissions.total_submissions ?? 0}</span>
                   </div>
                 </div>
               </div>
@@ -554,7 +582,7 @@ export default function AdminDashboard({
                           <span className="admin-activity-actor">
                             {act.actor_name || 'System'}
                           </span>
-                          {' '}&bull; {act.resource_type} #{act.resource_id}
+                          {act.resource_type ? ` \u2022 ${act.resource_type}${act.resource_id != null ? ` #${act.resource_id}` : ''}` : ''}
                         </span>
                       </div>
                       <span className="admin-activity-time">
@@ -592,14 +620,17 @@ export default function AdminDashboard({
               {/* API Status */}
               <div className="admin-health-item">
                 <div className="admin-health-subsys">
-                  <span className="health-dot dot-healthy" />
+                  <span className={`health-dot ${system.apiStatus === 'HEALTHY' ? 'dot-healthy' : 'dot-unhealthy'}`} />
                   <div>
                     <div className="admin-health-name">Backend API Gateway</div>
                     <div className="admin-health-meta">Express &bull; Node {system.nodeVersion || 'v24'}</div>
                   </div>
                 </div>
-                <span className="admin-health-status-badge" style={{ color: '#34d399' }}>
-                  Healthy
+                <span
+                  className="admin-health-status-badge"
+                  style={{ color: system.apiStatus === 'HEALTHY' ? '#34d399' : '#f87171' }}
+                >
+                  {system.apiStatus || 'Healthy'}
                 </span>
               </div>
 
@@ -667,6 +698,8 @@ export default function AdminDashboard({
           )}
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

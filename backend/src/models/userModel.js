@@ -217,8 +217,12 @@ class UserModel {
    * @returns {Promise<Object>}
    */
   static async findAllUsers({ page = 1, limit = 20, role, status, search }) {
-    const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
-    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+    const rawPage = parseInt(page, 10);
+    const parsedPage = Number.isInteger(rawPage) ? Math.min(Math.max(rawPage, 1), 100000) : 1;
+
+    const rawLimit = parseInt(limit, 10);
+    const parsedLimit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 20;
+
     const offset = (parsedPage - 1) * parsedLimit;
 
     const conditions = [];
@@ -236,7 +240,7 @@ class UserModel {
       const statusStr = String(status).trim().toLowerCase();
       if (statusStr === 'true' || statusStr === 'active') {
         conditions.push(`u.is_active = true`);
-      } else if (statusStr === 'false' || statusStr === 'inactive') {
+      } else if (statusStr === 'false' || statusStr === 'inactive' || statusStr === 'suspended') {
         conditions.push(`u.is_active = false`);
       }
     }
