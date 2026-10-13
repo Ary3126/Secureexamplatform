@@ -140,7 +140,9 @@ const getProblemById = async (req, res, next) => {
       return res.status(400).json({
         status: 'error',
         statusCode: 400,
+        error: 'VALIDATION_ERROR',
         message: 'Invalid problem identifier format',
+        requestId: req.id || null,
       });
     }
 

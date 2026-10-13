@@ -575,15 +575,15 @@ nums[0] + nums[1] = 2 + 7 = 9.
     let twoSum = (await query(`SELECT id FROM problems WHERE title = 'Two Sum' AND access_scope = 'public' LIMIT 1;`)).rows[0];
     if (!twoSum) {
       const tsRes = await query(`
-        INSERT INTO problems (title, description, difficulty, coding_mode, starter_templates, harness_templates, access_scope, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO problems (title, description, difficulty, coding_mode, starter_templates, harness_templates, access_scope, created_by, is_published, review_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 'published')
         RETURNING id;
       `, ['Two Sum', twoSumDesc, 'easy', 'function', JSON.stringify(twoSumStarter), JSON.stringify(twoSumHarness), 'public', adminId]);
       twoSum = tsRes.rows[0];
     } else {
       await query(`
         UPDATE problems 
-        SET description = $1, difficulty = 'easy', coding_mode = 'function', starter_templates = $2, harness_templates = $3, access_scope = 'public'
+        SET description = $1, difficulty = 'easy', coding_mode = 'function', starter_templates = $2, harness_templates = $3, access_scope = 'public', is_published = true, review_status = 'published'
         WHERE id = $4;
       `, [twoSumDesc, JSON.stringify(twoSumStarter), JSON.stringify(twoSumHarness), twoSum.id]);
     }
@@ -644,15 +644,15 @@ The two valid subarrays are:
     let subarraySum = (await query(`SELECT id FROM problems WHERE title = 'Subarray Sum' AND access_scope = 'public' LIMIT 1;`)).rows[0];
     if (!subarraySum) {
       const ssRes = await query(`
-        INSERT INTO problems (title, description, difficulty, coding_mode, starter_templates, harness_templates, access_scope, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO problems (title, description, difficulty, coding_mode, starter_templates, harness_templates, access_scope, created_by, is_published, review_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 'published')
         RETURNING id;
       `, ['Subarray Sum', subarraySumDesc, 'medium', 'function', JSON.stringify(subarraySumStarter), JSON.stringify(subarraySumHarness), 'public', adminId]);
       subarraySum = ssRes.rows[0];
     } else {
       await query(`
         UPDATE problems 
-        SET description = $1, difficulty = 'medium', coding_mode = 'function', starter_templates = $2, harness_templates = $3, access_scope = 'public'
+        SET description = $1, difficulty = 'medium', coding_mode = 'function', starter_templates = $2, harness_templates = $3, access_scope = 'public', is_published = true, review_status = 'published'
         WHERE id = $4;
       `, [subarraySumDesc, JSON.stringify(subarraySumStarter), JSON.stringify(subarraySumHarness), subarraySum.id]);
     }

@@ -164,23 +164,23 @@ class ProblemModel {
   static async isUserAuthorizedForProblem(problem, user = null) {
     if (!problem) return false;
 
-    const isPublished = problem.isPublished !== undefined
-      ? problem.isPublished
-      : (problem.is_published !== undefined ? problem.is_published : false);
-
-    // Draft / unpublished protection: only super_admin, contest_admin, or creator can view unpublished drafts
-    if (!isPublished) {
-      if (!user) return false;
-      if (user.role === 'super_admin' || user.role === 'contest_admin') return true;
-      if (problem.createdBy === user.id || problem.created_by === user.id) return true;
-      return false;
+    if (!user) {
+      const isPub = problem.isPublished !== undefined
+        ? Boolean(problem.isPublished)
+        : (problem.is_published !== undefined ? Boolean(problem.is_published) : false);
+      const sc = (problem.accessScope || problem.access_scope || 'public').toLowerCase();
+      return Boolean(isPub && sc === 'public');
     }
 
-    const scope = (problem.accessScope || problem.access_scope || 'public').toLowerCase();
-    if (scope === 'public') return true;
-    if (!user) return false;
     if (user.role === 'super_admin' || user.role === 'contest_admin') return true;
     if (problem.createdBy === user.id || problem.created_by === user.id) return true;
+
+    const isPublished = problem.isPublished !== undefined
+      ? Boolean(problem.isPublished)
+      : (problem.is_published !== undefined ? Boolean(problem.is_published) : false);
+
+    const scope = (problem.accessScope || problem.access_scope || 'public').toLowerCase();
+    if (isPublished && scope === 'public') return true;
 
     // Check if user is enrolled participant in a published contest containing this problem
     const text = `
